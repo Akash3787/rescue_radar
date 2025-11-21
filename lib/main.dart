@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'mapping_interface.dart';
+import 'live_graph_interface.dart';
 
 void main() {
   runApp(const MyApp());
@@ -14,7 +15,11 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Rescue Radar',
       theme: ThemeData.dark(),
-      home: MappingInterface(),  // <-- THIS SHOWS YOUR RADAR
+
+      // CHANGE SCREEN HERE
+      //home: MappingInterface(),   // Radar screen
+      // home: CameraInterface(), // Camera screen (Uncomment to test)
+      home: LiveGraphInterface(),
     );
   }
 }
