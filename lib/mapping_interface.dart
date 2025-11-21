@@ -4,21 +4,22 @@ import 'dart:math';
 class DetectedPoint {
   final double angle;     // in radians
   final double distance;  // 0 to 1 (normalized)
-  DetectedPoint(this.angle, this.distance);
+  const DetectedPoint(this.angle, this.distance);
 }
 
 class MappingInterface extends StatefulWidget {
+  const MappingInterface({super.key});
+
   @override
   _MappingInterfaceState createState() => _MappingInterfaceState();
 }
 
 class _MappingInterfaceState extends State<MappingInterface>
     with SingleTickerProviderStateMixin {
-
   AnimationController? _controller;
 
   // Example detected humans (later this will come from ESP32)
-  List<DetectedPoint> detected = [
+  final List<DetectedPoint> detected = const [
     DetectedPoint(pi / 3, 0.6),     // 60° at 60% radius
     DetectedPoint(5 * pi / 4, 0.4), // 225°
   ];
@@ -28,7 +29,7 @@ class _MappingInterfaceState extends State<MappingInterface>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: Duration(seconds: 5),
+      duration: const Duration(seconds: 5),
     )..repeat();
   }
 
@@ -41,7 +42,15 @@ class _MappingInterfaceState extends State<MappingInterface>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFF1A1D23),
+      backgroundColor: const Color(0xFF1A1D23),
+      appBar: AppBar(
+        title: const Text('Radar Mapping'),
+        backgroundColor: Colors.teal[800],
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: Center(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -101,7 +110,7 @@ class RadarPainter extends CustomPainter {
       )
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 12);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
 
     final angle = animation.value * 2 * pi;
     final endX = center.dx + (size.width / 2) * cos(angle);
@@ -114,7 +123,6 @@ class RadarPainter extends CustomPainter {
 
   void drawPulseDetections(Canvas canvas, Size size, Offset center) {
     for (var d in detected) {
-
       final dx = center.dx + cos(d.angle) * (d.distance * size.width / 2);
       final dy = center.dy + sin(d.angle) * (d.distance * size.height / 2);
       Offset point = Offset(dx, dy);
@@ -123,7 +131,7 @@ class RadarPainter extends CustomPainter {
 
       final pulsePaint = Paint()
         ..color = Colors.green.withOpacity(0.8)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 8);
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
       canvas.drawCircle(point, pulseSize, pulsePaint);
     }

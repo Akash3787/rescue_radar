@@ -171,6 +171,10 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
       appBar: AppBar(
         title: const Text('Live Heartbeat — Single Life View'),
         backgroundColor: Colors.teal[800],
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
@@ -314,7 +318,7 @@ class _RollingWavePainter extends CustomPainter {
       canvas.drawLine(Offset(x, origin.dy), Offset(x, origin.dy + h), gridPaint);
       // label seconds relative to now (negative = seconds ago). Show seconds from left (older) to right (0s)
       final tickSec = (now - (windowSeconds - i * secPerTick)).toStringAsFixed(0);
-      tp.text = TextSpan(text: '${tickSec}s', style: TextStyle(color: Colors.white54, fontSize: 11));
+      tp.text = TextSpan(text: '${tickSec}s', style: const TextStyle(color: Colors.white54, fontSize: 11));
       tp.layout();
       tp.paint(canvas, Offset(x - tp.width / 2, origin.dy + h + 4));
     }
@@ -373,14 +377,14 @@ class _RollingWavePainter extends CustomPainter {
     final labelTp = TextPainter(textDirection: TextDirection.ltr);
     for (int i = 0; i <= 4; i++) {
       final val = (1.0 - i * 0.5).toStringAsFixed(1);
-      labelTp.text = TextSpan(text: val, style: TextStyle(color: Colors.white38, fontSize: 11));
+      labelTp.text = TextSpan(text: val, style: const TextStyle(color: Colors.white38, fontSize: 11));
       labelTp.layout();
       final y = origin.dy + (i / 4) * h - labelTp.height / 2;
       labelTp.paint(canvas, Offset(6, y));
     }
 
     // Now timestamp (right top)
-    labelTp.text = TextSpan(text: 'Now: ${DateTime.now().toLocal().toIso8601String().substring(11, 19)}', style: TextStyle(color: Colors.white60, fontSize: 12));
+    labelTp.text = TextSpan(text: 'Now: ${DateTime.now().toLocal().toIso8601String().substring(11, 19)}', style: const TextStyle(color: Colors.white60, fontSize: 12));
     labelTp.layout();
     labelTp.paint(canvas, Offset(origin.dx + w - labelTp.width, origin.dy - 18));
   }
