@@ -1,12 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 
-class DetectedPoint {
-  final double angle;     // in radians
-  final double distance;  // 0 to 1 (normalized)
-  const DetectedPoint(this.angle, this.distance);
-}
-
 class MappingInterface extends StatefulWidget {
   const MappingInterface({super.key});
 
@@ -14,126 +8,474 @@ class MappingInterface extends StatefulWidget {
   _MappingInterfaceState createState() => _MappingInterfaceState();
 }
 
-class _MappingInterfaceState extends State<MappingInterface>
-    with SingleTickerProviderStateMixin {
-  AnimationController? _controller;
+class _MappingInterfaceState extends State<MappingInterface> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
 
-  // Example detected humans (later this will come from ESP32)
-  final List<DetectedPoint> detected = const [
-    DetectedPoint(pi / 3, 0.6),     // 60° at 60% radius
-    DetectedPoint(5 * pi / 4, 0.4), // 225°
+  final List<DetectionPoint> humanPoints = [
+    DetectionPoint(angle: pi / 3, distance: 0.6, label: "H1", color: const Color(0xFFE53935)),
+    DetectionPoint(angle: 5 * pi / 4, distance: 0.5, label: "H2", color: const Color(0xFFE53935)),
+    DetectionPoint(angle: 1.7, distance: 0.75, label: "H3", color: const Color(0xFFE53935)),
   ];
+  final List<DetectionPoint> noisePoints = [
+    DetectionPoint(angle: 0.5, distance: 0.5, label: "2mm", color: const Color(0xFFFF9100)),
+    DetectionPoint(angle: 3.0, distance: 0.6, label: "9-4", color: const Color(0xFFFF9100)),
+    DetectionPoint(angle: 5.8, distance: 0.7, label: "#1A1D23", color: const Color(0xFFFF9100)),
+  ];
+  final List<DetectionPoint> debrisPoints = [
+    DetectionPoint(angle: 1.0, distance: 0.3, label: "5-1", color: const Color(0xFF616161)),
+    DetectionPoint(angle: 2.4, distance: 0.65, label: "7-6", color: const Color(0xFF616161)),
+    DetectionPoint(angle: 3.7, distance: 0.5, label: "3-0", color: const Color(0xFF616161)),
+  ];
+
+  bool autoRefresh = true;
+  bool showGrid = true;
+  bool soundAlert = false;
+  final TextEditingController clearPointsController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 5),
+      duration: const Duration(seconds: 30), // 2 RPM sweep => 30s per rotation
     )..repeat();
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _controller.dispose();
+    clearPointsController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    const darkBackgroundColor = Color(0xFF1A1D23);
+    const tealCyanLight = Color(0xFF26D9C8);
+    const activeGreen = Color(0xFF00C853);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1D23),
+      backgroundColor: darkBackgroundColor,
       appBar: AppBar(
-        title: const Text('Radar Mapping'),
         backgroundColor: Colors.teal[800],
+        title: const Text("Rubble Radar Rescue System"),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: Center(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            double size =
-                min(constraints.maxWidth, constraints.maxHeight) * 0.95;
-
-            return CustomPaint(
-              size: Size(size, size),
-              painter: RadarPainter(_controller!, detected),
-            );
+          onPressed: () {
+            Navigator.pop(context); // Goes back to previous screen
           },
         ),
       ),
+
+      body: Column(
+        children: [
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Left Information Panel (300 px)
+                Container(
+                  width: 300,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: darkBackgroundColor,
+                    border: const Border(right: BorderSide(color: Colors.white24, width: 1)),
+                  ),
+                  child: Column(
+                    children: [
+                      // const Text(
+                      //   "Rubble Radar Rescue System",
+                      //   style: TextStyle(
+                      //     fontSize: 28,
+                      //     fontWeight: FontWeight.bold,
+                      //     color: Colors.white,
+                      //     fontFamily: 'Roboto',
+                      //   ),
+                      // ),
+                      const SizedBox(height: 30),
+                      Expanded(
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[900],
+                              border: Border.all(color: Colors.white24),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  children: const [
+                                    Icon(Icons.circle, color: Color(0xFF00C853), size: 16),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      "Active Scan",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 20,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                _infoText("Range: 5 meters"),
+                                _infoText("Sweep Rate: 2 RPM"),
+                                _infoText("Detected Targets: 3"),
+                                _infoText("Last Update: 2s ago"),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Central Radar Display
+                Expanded(
+                  child: Center(
+                    child: SizedBox(
+                      width: 650,
+                      height: 650,
+                      child: AnimatedBuilder(
+                        animation: _controller,
+                        builder: (context, _) {
+                          return CustomPaint(
+                            painter: RadarPainter(
+                              sweepAngle: _controller.value * 2 * pi,
+                              humanDetections: humanPoints,
+                              noiseDetections: noisePoints,
+                              debrisDetections: debrisPoints,
+                              showGrid: showGrid,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Right Control Panel (300 px, centered vertically)
+                Container(
+                  width: 300,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: darkBackgroundColor,
+                    border: const Border(left: BorderSide(color: Colors.white24, width: 1)),
+                  ),
+                  child: Center(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Align(
+                            alignment: Alignment.topRight,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                // Refresh action placeholder
+                              },
+                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              label: const Text(
+                                "Refresh Map",
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: tealCyanLight,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                elevation: 4,
+                                shadowColor: Colors.black45,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 40),
+                          const Text(
+                            "Clear Points",
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: clearPointsController,
+                            cursorColor: Colors.white,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              fillColor: Colors.grey[900],
+                              filled: true,
+                              hintText: "Enter points to clear",
+                              hintStyle: const TextStyle(color: Colors.white54),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                            ),
+                          ),
+                          const SizedBox(height: 40),
+                          _buildSwitch("Auto Refresh", autoRefresh, activeGreen, (v) {
+                            setState(() => autoRefresh = v);
+                          }),
+                          _buildSwitch("Show Grid", showGrid, activeGreen, (v) {
+                            setState(() => showGrid = v);
+                          }),
+                          _buildSwitch(
+                            "Sound Alert", soundAlert, Colors.grey, (v) => setState(() => soundAlert = v),
+                            inactiveTrackColor: const Color(0xFFFF9100),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Legend panel (bottom bar)
+          Container(
+            height: 56,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF1A1D23), Color(0xFF252932)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              border: Border(top: BorderSide(color: Colors.white24)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                _legendCircle(const Color(0xFFE53935), "Human Detected"),
+                const SizedBox(width: 24),
+                _legendCircle(const Color(0xFFFF9100), "Noise Signal"),
+                const SizedBox(width: 24),
+                _legendCircle(const Color(0xFF616161), "Object/Debris"),
+                const Spacer(),
+                Row(
+                  children: [
+                    Container(
+                      width: 100,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF00C853), Color(0xFF26D9C8)],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      "Radar Sweep",
+                      style: TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoText(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 16)),
+    );
+  }
+
+  Widget _buildSwitch(String label, bool value, Color activeColor, ValueChanged<bool> onChanged,
+      {Color? inactiveTrackColor}) {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 16)),
+      value: value,
+      activeColor: activeColor,
+      inactiveTrackColor: inactiveTrackColor,
+      onChanged: onChanged,
+    );
+  }
+
+  Widget _legendCircle(Color color, String label) {
+    return Row(
+      children: [
+        Container(width: 16, height: 16, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 14)),
+      ],
     );
   }
 }
 
-class RadarPainter extends CustomPainter {
-  final Animation<double> animation;
-  final List<DetectedPoint> detected;
+class DetectionPoint {
+  final double angle; // radians
+  final double distance; // 0-1 normalized
+  final String label;
+  final Color color;
 
-  RadarPainter(this.animation, this.detected) : super(repaint: animation);
+  DetectionPoint({
+    required this.angle,
+    required this.distance,
+    required this.label,
+    required this.color,
+  });
+}
+
+class RadarPainter extends CustomPainter {
+  final double sweepAngle;
+  final bool showGrid;
+  final List<DetectionPoint> humanDetections;
+  final List<DetectionPoint> noiseDetections;
+  final List<DetectionPoint> debrisDetections;
+  final Paint _circlePaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 1;
+  final Paint _gridLinePaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = Colors.lightBlue.withOpacity(0.3);
+
+  RadarPainter({
+    required this.sweepAngle,
+    required this.showGrid,
+    required this.humanDetections,
+    required this.noiseDetections,
+    required this.debrisDetections,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
 
-    // ---- Draw concentric circles ----
-    final circlePaint = Paint()
-      ..color = Colors.grey.shade700
-      ..style = PaintingStyle.stroke;
+    // Background fill
+    final bgPaint = Paint()..color = const Color(0xFF1A1D23);
+    canvas.drawRect(Offset.zero & size, bgPaint);
 
-    for (int i = 1; i <= 5; i++) {
-      canvas.drawCircle(center, i * size.width / 10, circlePaint);
+    if (showGrid) {
+      _drawGrid(canvas, center, radius);
     }
 
-    // ---- Crosshair ----
-    final linePaint = Paint()
-      ..color = Colors.grey.shade700
-      ..strokeWidth = 1;
+    _drawCrosshairs(canvas, size, center);
 
-    canvas.drawLine(center.translate(-size.width / 2, 0),
-        center.translate(size.width / 2, 0), linePaint);
+    _drawCardinalLabels(canvas, center, radius);
 
-    canvas.drawLine(center.translate(0, -size.height / 2),
-        center.translate(0, size.height / 2), linePaint);
+    _drawSweepSector(canvas, center, radius);
 
-    // ---- Sweeping line ----
-    final sweepPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.green.withOpacity(0.9),
-          Colors.transparent,
-        ],
-      ).createShader(
-        Rect.fromCircle(center: center, radius: size.width / 2),
-      )
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-
-    final angle = animation.value * 2 * pi;
-    final endX = center.dx + (size.width / 2) * cos(angle);
-    final endY = center.dy + (size.height / 2) * sin(angle);
-    canvas.drawLine(center, Offset(endX, endY), sweepPaint);
-
-    // ---- Draw detected humans as blinking pulse ----
-    drawPulseDetections(canvas, size, center);
+    _drawDetections(canvas, center, radius, humanDetections, true);
+    _drawDetections(canvas, center, radius, noiseDetections, false);
+    _drawDetections(canvas, center, radius, debrisDetections, false);
   }
 
-  void drawPulseDetections(Canvas canvas, Size size, Offset center) {
-    for (var d in detected) {
-      final dx = center.dx + cos(d.angle) * (d.distance * size.width / 2);
-      final dy = center.dy + sin(d.angle) * (d.distance * size.height / 2);
-      Offset point = Offset(dx, dy);
+  void _drawGrid(Canvas canvas, Offset center, double radius) {
+    _circlePaint.color = Colors.lightBlue.withOpacity(0.3);
+    for (int i = 1; i <= 5; i++) {
+      canvas.drawCircle(center, radius * i / 5, _circlePaint);
+    }
 
-      final pulseSize = 8 + sin(animation.value * 2 * pi) * 5;
+    for (int i = 0; i < 12; i++) { // every 30 degrees
+      double angle = i * pi / 6;
+      final end = Offset(center.dx + radius * cos(angle), center.dy + radius * sin(angle));
+      canvas.drawLine(center, end, _gridLinePaint);
+    }
 
-      final pulsePaint = Paint()
-        ..color = Colors.green.withOpacity(0.8)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    final textStyle = TextStyle(color: Colors.lightBlue.withOpacity(0.5), fontSize: 12);
+    final labels = ['2m', '3m', '5m'];
+    final values = [radius * 0.4, radius * 0.6, radius];
+    final tp = TextPainter(textAlign: TextAlign.center, textDirection: TextDirection.ltr);
 
-      canvas.drawCircle(point, pulseSize, pulsePaint);
+    for (int i = 0; i < labels.length; i++) {
+      tp.text = TextSpan(text: labels[i], style: textStyle);
+      tp.layout();
+      tp.paint(canvas, Offset(center.dx + values[i] - tp.width / 2, center.dy + 4));
+    }
+  }
+
+  void _drawCrosshairs(Canvas canvas, Size size, Offset center) {
+    final crosshairPaint = Paint()
+      ..color = Colors.lightBlue.withOpacity(0.6)
+      ..strokeWidth = 1;
+
+    canvas.drawLine(Offset(center.dx, 0), Offset(center.dx, size.height), crosshairPaint);
+    canvas.drawLine(Offset(0, center.dy), Offset(size.width, center.dy), crosshairPaint);
+  }
+
+  void _drawCardinalLabels(Canvas canvas, Offset center, double radius) {
+    final textStyle = TextStyle(
+      color: Colors.lightBlue.withOpacity(0.8),
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+    );
+    final tp = TextPainter(textAlign: TextAlign.center, textDirection: TextDirection.ltr);
+
+    final Map<String, Offset> directions = {
+      'N': Offset(center.dx, center.dy - radius + 12),
+      'S': Offset(center.dx, center.dy + radius - 24),
+      'E': Offset(center.dx + radius - 24, center.dy),
+      'W': Offset(center.dx - radius + 12, center.dy),
+    };
+
+    for (var entry in directions.entries) {
+      tp.text = TextSpan(text: entry.key, style: textStyle);
+      tp.layout();
+      Offset textPos = entry.value - Offset(tp.width / 2, tp.height / 2);
+      tp.paint(canvas, textPos);
+    }
+  }
+
+  void _drawSweepSector(Canvas canvas, Offset center, double radius) {
+    final sweepPaint = Paint()
+      ..shader = SweepGradient(
+        colors: [
+          const Color(0xFF26D9C8).withOpacity(0.6),
+          const Color(0xFF26D9C8).withOpacity(0.0),
+        ],
+        startAngle: sweepAngle - 0.2,
+        endAngle: sweepAngle,
+      ).createShader(Rect.fromCircle(center: center, radius: radius))
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+
+    Path sector = Path();
+    sector.moveTo(center.dx, center.dy);
+    sector.arcTo(Rect.fromCircle(center: center, radius: radius), sweepAngle - 0.2, 0.2, false);
+    sector.close();
+
+    canvas.drawPath(sector, sweepPaint);
+  }
+
+  void _drawDetections(Canvas canvas, Offset center, double radius, List<DetectionPoint> points, bool pulse) {
+    final currentTime = DateTime.now().millisecondsSinceEpoch / 1000;
+    for (var pt in points) {
+      final pos = Offset(center.dx + cos(pt.angle) * pt.distance * radius,
+          center.dy + sin(pt.angle) * pt.distance * radius);
+
+      final pointPaint = Paint()..color = pt.color;
+      canvas.drawCircle(pos, 12, pointPaint);
+
+      final outlinePaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawCircle(pos, 12, outlinePaint);
+
+      if (pulse) {
+        final pulseRadius = 16 + 6 * sin(currentTime * 2 * pi);
+        final pulsePaint = Paint()
+          ..color = pt.color.withOpacity(0.5)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(pos, pulseRadius, pulsePaint);
+      }
+
+      final textPainter = TextPainter(
+          text: TextSpan(
+            text: pt.label,
+            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+          ),
+          textDirection: TextDirection.ltr);
+      textPainter.layout();
+      textPainter.paint(canvas, pos + const Offset(16, -10));
     }
   }
 
