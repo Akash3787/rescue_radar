@@ -11,7 +11,7 @@ class HomePage extends StatelessWidget {
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text("Rescue Radar — Control Center"),
-        backgroundColor: Colors.teal[800],
+        backgroundColor: Colors.blueGrey,
       ),
       body: Center(
         child: Column(
