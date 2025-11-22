@@ -33,6 +33,14 @@ class _DashboardPageState extends State<DashboardPage> {
     // const CameraInterface(),
   ];
 
+  // Sample images URLs (replace with assets if desired)
+  final List<String> imageUrls = [
+    'https://cdn-icons-png.flaticon.com/512/565/565547.png', // Data Logging icon
+    'https://cdn-icons-png.flaticon.com/512/1038/1038700.png', // Mapping icon
+    'https://cdn-icons-png.flaticon.com/512/2889/2889679.png', // Live Graph icon
+    'https://cdn-icons-png.flaticon.com/512/686/686352.png', // Camera icon
+  ];
+
   @override
   Widget build(BuildContext context) {
     bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -166,8 +174,120 @@ class _DashboardPageState extends State<DashboardPage> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(20),
-                    child:
-                    selectedIndex == 0 ? _buildDashboardGrid(isDarkMode) : pages[selectedIndex - 1],
+                    child: selectedIndex == 0
+                        ? GridView.builder(
+                      itemCount: 4,
+                      gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 30,
+                        mainAxisSpacing: 30,
+                        childAspectRatio: 4 / 3,
+                      ),
+                      itemBuilder: (context, index) {
+                        final card = [
+                          _DashboardCardData(
+                            title: 'Data Logging',
+                            icon: Icons.table_chart,
+                            description: 'View logged sensor data',
+                            imageUrl: imageUrls[0],
+                            onTap: () {
+                              // Add navigation once implemented
+                            },
+                          ),
+                          _DashboardCardData(
+                            title: 'Mapping Interface',
+                            icon: Icons.radar,
+                            description: 'View and control radar mapping',
+                            imageUrl: imageUrls[1],
+                            onTap: () => _navigateTo(const MappingInterface()),
+                          ),
+                          _DashboardCardData(
+                            title: 'Live Heartbeat Graph',
+                            icon: Icons.show_chart,
+                            description: 'Monitor live vital signs',
+                            imageUrl: imageUrls[2],
+                            onTap: () => _navigateTo(const LiveGraphInterface()),
+                          ),
+                          _DashboardCardData(
+                            title: 'Camera Interface',
+                            icon: Icons.camera_alt,
+                            description: 'Visual access via cameras',
+                            imageUrl: imageUrls[3],
+                            onTap: () {
+                              // Add navigation once implemented
+                            },
+                          ),
+                        ][index];
+
+                        return GestureDetector(
+                          onTap: card.onTap,
+                          child: Card(
+                            color: isDarkMode
+                                ? const Color(0xFF252932)
+                                : Colors.white,
+                            shape: RoundedRectangleBorder(
+                              side: BorderSide(
+                                  color: isDarkMode
+                                      ? Colors.cyanAccent.withOpacity(0.7)
+                                      : Colors.grey.shade300,
+                                  width: 1.5),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 4,
+                            shadowColor: isDarkMode
+                                ? Colors.cyanAccent.withOpacity(0.4)
+                                : Colors.grey[300],
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Image.network(
+                                    card.imageUrl,
+                                    height: 70,
+                                    width: 70,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    card.title,
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDarkMode
+                                          ? Colors.white
+                                          : Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    card.description,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: isDarkMode
+                                          ? Colors.white70
+                                          : Colors.black54,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Align(
+                                    alignment: Alignment.bottomRight,
+                                    child: Icon(
+                                      Icons.arrow_forward_ios,
+                                      color: isDarkMode
+                                          ? Colors.cyanAccent
+                                          : Colors.blue,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    )
+                        : pages[selectedIndex - 1],
                   ),
                 ),
               ],
@@ -175,101 +295,6 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildDashboardGrid(bool isDarkMode) {
-    final cardData = [
-      _DashboardCardData(
-        title: 'Data Logging',
-        icon: Icons.table_chart,
-        description: 'View logged sensor data',
-        onTap: () {
-          // Add navigation once implemented
-        },
-      ),
-      _DashboardCardData(
-        title: 'Mapping Interface',
-        icon: Icons.radar,
-        description: 'View and control radar mapping',
-        onTap: () => _navigateTo(const MappingInterface()),
-      ),
-      _DashboardCardData(
-        title: 'Live Heartbeat Graph',
-        icon: Icons.show_chart,
-        description: 'Monitor live vital signs',
-        onTap: () => _navigateTo(const LiveGraphInterface()),
-      ),
-      _DashboardCardData(
-        title: 'Camera Interface',
-        icon: Icons.camera_alt,
-        description: 'Visual access via cameras',
-        onTap: () {
-          // Add navigation once implemented
-        },
-      ),
-    ];
-
-    return GridView.builder(
-      itemCount: cardData.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 30,
-        mainAxisSpacing: 30,
-        childAspectRatio: 4 / 3,
-      ),
-      itemBuilder: (context, index) {
-        final card = cardData[index];
-        return GestureDetector(
-          onTap: card.onTap,
-          child: Card(
-            color: isDarkMode ? const Color(0xFF252932) : Colors.white,
-            shape: RoundedRectangleBorder(
-              side: BorderSide(
-                  color: isDarkMode ? Colors.cyanAccent.withOpacity(0.7) : Colors.grey.shade300,
-                  width: 1.5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            elevation: 4,
-            shadowColor: isDarkMode ? Colors.cyanAccent.withOpacity(0.4) : Colors.grey[300],
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(card.icon, size: 48, color: isDarkMode ? Colors.cyanAccent : Colors.blue),
-                  const SizedBox(height: 12),
-                  Text(
-                    card.title,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: isDarkMode ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    card.description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDarkMode ? Colors.white70 : Colors.black54,
-                    ),
-                  ),
-                  const Spacer(),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Icon(
-                      Icons.arrow_forward_ios,
-                      color: isDarkMode ? Colors.cyanAccent : Colors.blue,
-                      size: 20,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -289,10 +314,13 @@ class _DashboardCardData {
   final IconData icon;
   final String description;
   final VoidCallback onTap;
+  final String imageUrl;
+
   _DashboardCardData({
     required this.title,
     required this.icon,
     required this.description,
     required this.onTap,
+    required this.imageUrl,
   });
 }
