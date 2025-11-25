@@ -1,10 +1,9 @@
+// lib/dashboard_page.dart
+
 import 'package:flutter/material.dart';
 import 'mapping_interface.dart';
 import 'live_graph_interface.dart';
-
-// Uncomment and create these pages if available:
-// import 'camera_interface.dart';
-// import 'data_logging_interface.dart';
+import 'victim_readings_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -42,9 +41,8 @@ class _DashboardPageState extends State<DashboardPage> {
     final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDarkMode
-          ? const Color(0xFF07090C)
-          : const Color(0xFFF5F7FA),
+      backgroundColor:
+      isDarkMode ? const Color(0xFF07090C) : const Color(0xFFF5F7FA),
       body: Row(
         children: [
           // SIDEBAR
@@ -59,8 +57,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color:
-                    isDarkMode ? Colors.cyanAccent : Colors.teal[800],
+                    color: isDarkMode ? Colors.cyanAccent : Colors.teal[800],
                     letterSpacing: 2,
                   ),
                 ),
@@ -84,9 +81,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           navItems[index].title,
                           style: TextStyle(
                             color: active ? activeColor : inactiveColor,
-                            fontWeight: active
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                            fontWeight:
+                            active ? FontWeight.bold : FontWeight.normal,
                           ),
                         ),
                         tileColor: active
@@ -174,7 +170,8 @@ class _DashboardPageState extends State<DashboardPage> {
                         backgroundColor: isDarkMode
                             ? Colors.cyanAccent
                             : Colors.teal[700],
-                        child: const Icon(Icons.person, color: Colors.white),
+                        child:
+                        const Icon(Icons.person, color: Colors.white),
                       ),
                     ],
                   ),
@@ -206,9 +203,7 @@ class _DashboardPageState extends State<DashboardPage> {
         description: 'View logged sensor data',
         imageAsset: 'images/data logging.png',
         accent: Colors.cyanAccent,
-        onTap: () {
-          // navigation later
-        },
+        onTap: () => _navigateTo(const VictimReadingsPage()),
       ),
       _DashboardCardData(
         title: 'Mapping Interface',
@@ -241,7 +236,7 @@ class _DashboardPageState extends State<DashboardPage> {
         crossAxisCount: 2,
         crossAxisSpacing: 26,
         mainAxisSpacing: 26,
-        childAspectRatio: 1.1, // near square, like your ref screenshot
+        childAspectRatio: 1.1,
       ),
       itemBuilder: (context, index) {
         final card = cardData[index];
@@ -302,7 +297,6 @@ class _DashboardNeatCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Title + tiny dropdown icon
               Row(
                 children: [
                   Expanded(
@@ -325,8 +319,6 @@ class _DashboardNeatCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-
-              // Image panel (USES YOUR ASSET, no cropping)
               Expanded(
                 child: Container(
                   width: double.infinity,
@@ -341,14 +333,12 @@ class _DashboardNeatCard extends StatelessWidget {
                   ),
                   padding: const EdgeInsets.all(6),
                   child: FittedBox(
-                    fit: BoxFit.contain, // full image visible, not clumsy
+                    fit: BoxFit.contain,
                     child: Image.asset(data.imageAsset),
                   ),
                 ),
               ),
               const SizedBox(height: 10),
-
-              // Description + small action button bottom-right
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
