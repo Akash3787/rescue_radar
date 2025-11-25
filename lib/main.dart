@@ -28,36 +28,11 @@
 
 
 // main.dart
-import 'package:flutter/material.dart';
-import 'dashboard_page.dart';
-import 'auth_page.dart';
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'RRRS Rescue Radar',
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
-      // Start at auth (login/signup), NOT dashboard
-      home: const AuthPage(),
-    );
-  }
-}
-
-
-
 
 
 // import 'package:flutter/material.dart';
 // import 'dashboard_page.dart';
+// import 'auth_page.dart';
 //
 // void main() {
 //   runApp(const MyApp());
@@ -73,7 +48,34 @@ class MyApp extends StatelessWidget {
 //       title: 'RRRS Rescue Radar',
 //       theme: ThemeData.light(),
 //       darkTheme: ThemeData.dark(),
-//       home: const DashboardPage(),
+//       // Start at auth (login/signup), NOT dashboard
+//       home: const AuthPage(),
 //     );
 //   }
 // }
+//
+
+
+
+
+import 'package:flutter/material.dart';
+import 'dashboard_page.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'RRRS Rescue Radar',
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
+      home: const DashboardPage(),
+    );
+  }
+}

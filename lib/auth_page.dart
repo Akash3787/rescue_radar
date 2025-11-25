@@ -21,11 +21,7 @@ class _AuthPageState extends State<AuthPage> {
 
 
   //import 'dart:io' show Platform;
-  final String baseUrl = Platform.isMacOS
-      ? 'http://172.20.44.6:5001'  // Your LAN IP
-      : Platform.isAndroid
-      ? 'http://10.0.2.2:5001'
-      : 'http://127.0.0.1:5001';
+  final String baseUrl = 'http://172.20.44.6:5001';
 
   // Controllers
   final TextEditingController _loginEmailController = TextEditingController();
@@ -51,7 +47,9 @@ class _AuthPageState extends State<AuthPage> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"email": email, "password": password}),
       );
-      if (response.statusCode == 200) return true;
+
+      if (response.statusCode == 200 || response.statusCode == 201) return true;
+
       print('Signup failed: ${response.body}');
       return false;
     } catch (e) {
