@@ -1,5 +1,3 @@
-// lib/dashboard_page.dart
-
 import 'package:flutter/material.dart';
 import 'mapping_interface.dart';
 import 'live_graph_interface.dart';
@@ -30,10 +28,8 @@ class _DashboardPageState extends State<DashboardPage> {
         style: TextStyle(fontSize: 24),
       ),
     ),
-    // const DataLoggingInterface(),
     const MappingInterface(),
     const LiveGraphInterface(),
-    // const CameraInterface(),
   ];
 
   @override
@@ -103,7 +99,7 @@ class _DashboardPageState extends State<DashboardPage> {
           Expanded(
             child: Column(
               children: [
-                // TOP BAR
+                // TOP BAR (updated)
                 Container(
                   height: 56,
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -121,44 +117,65 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                   child: Row(
                     children: [
-                      Text(
-                        navItems[selectedIndex].title,
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color:
-                          isDarkMode ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                      const Spacer(),
-                      SizedBox(
-                        width: 340,
-                        child: TextField(
-                          style: TextStyle(
-                            color: isDarkMode
-                                ? Colors.white
-                                : Colors.black87,
-                          ),
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: isDarkMode
-                                ? const Color(0xFF1C212C)
-                                : const Color(0xFFF0F2F5),
-                            prefixIcon: Icon(
-                              Icons.search,
+                      // Page title
+                      Flexible(
+                        flex: 0,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 280),
+                          child: Text(
+                            navItems[selectedIndex].title,
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
                               color: isDarkMode
-                                  ? Colors.white54
-                                  : Colors.black38,
+                                  ? Colors.white
+                                  : Colors.black87,
                             ),
-                            hintText: 'Search...',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide.none,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+
+                      const Spacer(),
+
+                      // Search bar (responsive)
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: 420,
+                          minWidth: 120,
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: TextField(
+                            style: TextStyle(
+                              color: isDarkMode
+                                  ? Colors.white
+                                  : Colors.black87,
+                            ),
+                            decoration: InputDecoration(
+                              filled: true,
+                              fillColor: isDarkMode
+                                  ? const Color(0xFF1C212C)
+                                  : const Color(0xFFF0F2F5),
+                              prefixIcon: Icon(
+                                Icons.search,
+                                color: isDarkMode
+                                    ? Colors.white54
+                                    : Colors.black38,
+                              ),
+                              hintText: 'Search...',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide.none,
+                              ),
+                              isDense: true,
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 16),
+
+                      const SizedBox(width: 12),
+
                       Icon(
                         Icons.notifications,
                         color: isDarkMode
@@ -166,12 +183,11 @@ class _DashboardPageState extends State<DashboardPage> {
                             : Colors.black54,
                       ),
                       const SizedBox(width: 12),
+
                       CircleAvatar(
-                        backgroundColor: isDarkMode
-                            ? Colors.cyanAccent
-                            : Colors.teal[700],
-                        child:
-                        const Icon(Icons.person, color: Colors.white),
+                        backgroundColor:
+                        isDarkMode ? Colors.cyanAccent : Colors.teal[700],
+                        child: const Icon(Icons.person, color: Colors.white),
                       ),
                     ],
                   ),
@@ -224,9 +240,7 @@ class _DashboardPageState extends State<DashboardPage> {
         description: 'Visual access via cameras',
         imageAsset: 'images/cam inter.png',
         accent: Colors.cyanAccent,
-        onTap: () {
-          // navigation later
-        },
+        onTap: () {},
       ),
     ];
 
@@ -349,9 +363,8 @@ class _DashboardNeatCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
-                        color: isDarkMode
-                            ? Colors.white70
-                            : Colors.black54,
+                        color:
+                        isDarkMode ? Colors.white70 : Colors.black54,
                       ),
                     ),
                   ),

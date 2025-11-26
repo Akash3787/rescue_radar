@@ -2,9 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- App sandbox ON -->
     <key>com.apple.security.app-sandbox</key>
     <true/>
+
+    <!-- JIT allowed for debug builds -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Your app can make HTTP requests (client) -->
     <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Dart VM service runs a local HTTP server (needs server entitlement) -->
+    <key>com.apple.security.network.server</key>
     <true/>
 </dict>
 </plist>
