@@ -15,7 +15,9 @@ class VictimReadingsPage extends StatefulWidget {
 }
 
 class _VictimReadingsPageState extends State<VictimReadingsPage> {
-  final ApiService _apiService = ApiService();
+  final ApiService _apiService = ApiService(
+    forcedBase: 'http://172.20.45.32:5001',
+  );
   late Future<List<VictimReading>> _futureReadings;
 
   // Analytics values (updated after load)
@@ -26,7 +28,8 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   @override
   void initState() {
     super.initState();
-    _futureReadings = _loadAndCompute();
+    // quick hint: replace with your server IP found above
+    _futureReadings = ApiService(lanHints: ['192.168.0.200:5001']).fetchAllReadings();
   }
 
   Future<List<VictimReading>> _loadAndCompute() async {
