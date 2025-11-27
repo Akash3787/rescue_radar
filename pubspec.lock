@@ -41,14 +41,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.19.1"
-  crypto:
-    dependency: transitive
-    description:
-      name: crypto
-      sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.7"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -192,14 +184,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.16.0"
-  multicast_dns:
-    dependency: "direct main"
-    description:
-      name: multicast_dns
-      sha256: de72ada5c3db6fdd6ad4ae99452fe05fb403c4bb37c67ceb255ddd37d2b5b1eb
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.3"
   path:
     dependency: transitive
     description:
@@ -248,14 +232,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.8"
-  screen_retriever:
-    dependency: transitive
-    description:
-      name: screen_retriever
-      sha256: "6ee02c8a1158e6dae7ca430da79436e3b1c9563c8cf02f524af997c201ac2b90"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.9"
   shared_preferences:
     dependency: "direct main"
     description:
@@ -461,22 +437,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
-  web_socket_channel:
-    dependency: "direct main"
-    description:
-      name: web_socket_channel
-      sha256: d88238e5eac9a42bb43ca4e721edba3c08c6354d4a53063afaa568516217621b
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.4.0"
-  window_manager:
-    dependency: "direct main"
-    description:
-      name: window_manager
-      sha256: "8699323b30da4cdbe2aa2e7c9de567a6abd8a97d9a5c850a3c86dcd0b34bbfbf"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.9"
   xdg_directories:
     dependency: transitive
     description:
