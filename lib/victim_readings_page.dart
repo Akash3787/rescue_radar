@@ -1,7 +1,5 @@
 // lib/victim_readings_page.dart
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'models/victim_reading.dart';
@@ -15,203 +13,229 @@ class VictimReadingsPage extends StatefulWidget {
 }
 
 class _VictimReadingsPageState extends State<VictimReadingsPage> {
-  final ApiService _apiService = ApiService();
+  late ApiService _apiService;
   late Future<List<VictimReading>> _futureReadings;
-
-  // Analytics values (updated after load)
-  int _uniqueVictimsToday = 0;
-  double _avgDistanceToday = 0.0;
-  double _gpsPercentToday = 0.0;
+  String? _error; // discovery / network error message
+  bool _usingHosted = false;
 
   @override
   void initState() {
     super.initState();
-    _futureReadings = _loadAndCompute();
+    // Start with "smart" discovery (no forced base).
+    _apiService = ApiService(); // will try localhost, lanHints, mDNS...
+    _load();
   }
 
-  Future<List<VictimReading>> _loadAndCompute() async {
-    final data = await _apiService.fetchAllReadings();
-    final analytics = _computeAnalyticsInternal(data);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  Future<void> _load({bool forceReload = false}) async {
+    setState(() {
+      _error = null;
+      _futureReadings = _apiService.fetchAllReadings();
+    });
+
+    try {
+      // await to surface any immediate errors so UI can show friendly message
+      await _futureReadings;
+      // success - nothing else needed
+      if (mounted) setState(() {});
+    } catch (e) {
       if (mounted) {
         setState(() {
-          _uniqueVictimsToday = analytics['unique'];
-          _avgDistanceToday = analytics['avg'];
-          _gpsPercentToday = analytics['gps'];
+          _error = e.toString();
         });
       }
-    });
-    return data;
-  }
-
-  Future<void> _refresh() async {
-    setState(() {
-      _futureReadings = _loadAndCompute();
-    });
-  }
-
-  Map<String, dynamic> _computeAnalyticsInternal(List<VictimReading> data) {
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final todayEnd = todayStart.add(const Duration(days: 1));
-
-    final todayData = data.where((r) {
-      final ts = DateTime.tryParse(r.timestamp);
-      if (ts == null) return false;
-      final local = ts.toLocal();
-      return local.isAfter(todayStart) && local.isBefore(todayEnd);
-    }).toList();
-
-    final unique = <String>{};
-    for (final r in todayData) unique.add(r.victimId);
-
-    double avg = 0.0;
-    if (todayData.isNotEmpty) {
-      avg = todayData.map((r) => r.distanceCm).reduce((a, b) => a + b) / todayData.length;
     }
+  }
 
-    final gpsCount = todayData.where((r) => r.latitude != null && r.longitude != null).length;
-    final gpsPercent = todayData.isEmpty ? 0.0 : (gpsCount / todayData.length) * 100.0;
+  Future<void> _retryDiscovery() async {
+    setState(() {
+      _error = null;
+    });
+    try {
+      // clear cached discovery and try again
+      await ApiService.clearCache();
+      _apiService = ApiService(); // fresh discovery
+      await _load();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
 
-    return {
-      'unique': unique.length,
-      'avg': double.parse(avg.toStringAsFixed(1)),
-      'gps': double.parse(gpsPercent.toStringAsFixed(1)),
-    };
+  Future<void> _useHosted() async {
+    // switch to hosted Railway server immediately
+    final hosted = ApiService.forHosted();
+    _apiService = hosted;
+    _usingHosted = true;
+    // persist choice inside ApiService.forHosted (it stores in prefs)
+    await ApiService.setCustomBase('https://web-production-87279.up.railway.app');
+    await _load();
   }
 
   Future<void> _downloadPdf() async {
-    final uri = Uri.parse("http://127.0.0.1:5001/api/v1/readings/export/pdf");
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    try {
+      final pdfUrl = await _apiService.pdfExportUrl();
+      final uri = Uri.parse(pdfUrl);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not open PDF download link')),
+          );
+        }
+      }
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Could not open PDF")),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF error: $e')));
       }
     }
   }
 
-  Future<void> _openMap(double? lat, double? lon) async {
-    if (lat == null || lon == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("No GPS coordinates")),
-        );
-      }
-      return;
+  Future<void> _refresh() async {
+    try {
+      // force fresh fetch
+      final base = await _apiService.forceProbe();
+      setState(() {
+        _futureReadings = _apiService.fetchAllReadings();
+        _error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
     }
-    final uri = Uri.parse("https://www.google.com/maps?q=$lat,$lon");
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  Widget _analyticsCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color accent,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1A1D24) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.grey.withOpacity(0.12)),
-          boxShadow: [
-            BoxShadow(
-              color: isDark ? Colors.black.withOpacity(0.3) : Colors.grey.withOpacity(0.12),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Row(
+  Widget _buildErrorCard() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: accent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: accent, size: 20),
+            const Icon(Icons.cloud_off, size: 64, color: Colors.orange),
+            const SizedBox(height: 12),
+            const Text(
+              'Could not discover backend on local network',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
             ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 8),
+            Text(
+              _error ?? 'Try retrying discovery or use the hosted backend.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              alignment: WrapAlignment.center,
               children: [
-                Text(title, style: TextStyle(color: Colors.grey.withOpacity(0.7), fontSize: 12)),
-                const SizedBox(height: 5),
-                Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 19)),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry Discovery'),
+                  onPressed: _retryDiscovery,
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.cloud),
+                  label: const Text('Use Hosted Backend'),
+                  onPressed: _useHosted,
+                ),
               ],
-            )
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              child: const Text('Advanced: Reset discovery cache'),
+              onPressed: () async {
+                await ApiService.clearCache();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Discovery cache cleared')),
+                  );
+                }
+              },
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _readingCard(VictimReading r) {
-    final ts = DateTime.tryParse(r.timestamp);
-    final formattedTime = ts != null ? ts.toLocal().toString().split('.').first : r.timestamp;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Widget _buildList(List<VictimReading> readings) {
+    // analytics summary at top
+    final total = readings.length;
+    final avgDistance = (readings.isEmpty) ? 0 : (readings.map((r) => r.distanceCm).reduce((a, b) => a + b) / readings.length);
+    final withGps = readings.where((r) => r.latitude != null && r.longitude != null).length;
+    final gpsPct = total == 0 ? 0 : ((withGps / total) * 100).round();
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1D24) : Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.withOpacity(0.15)),
-        boxShadow: [
-          BoxShadow(
-            color: isDark ? Colors.black.withOpacity(0.3) : Colors.grey.withOpacity(0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      child: Row(
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: Colors.blueGrey,
-            child: Text(r.victimId.length > 6 ? r.victimId.substring(r.victimId.length - 4).toUpperCase() : r.victimId.toUpperCase(), style: const TextStyle(color: Colors.white)),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Flexible(child: Text(r.victimId, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), overflow: TextOverflow.ellipsis)),
-                    Text(formattedTime, style: TextStyle(fontSize: 12, color: Colors.grey.withOpacity(0.7))),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Chip(label: Text("${r.distanceCm.toStringAsFixed(1)} cm", style: const TextStyle(color: Colors.white)), backgroundColor: Colors.teal),
-                const SizedBox(height: 8),
-                if (r.latitude != null && r.longitude != null)
-                  GestureDetector(onTap: () => _openMap(r.latitude, r.longitude), child: Row(children: [const Icon(Icons.location_pin, size: 18, color: Colors.redAccent), const SizedBox(width: 6), Text("${r.latitude!.toStringAsFixed(4)}, ${r.longitude!.toStringAsFixed(4)}", style: const TextStyle(fontSize: 13))]))
-                else
-                  Text("No GPS", style: TextStyle(color: Colors.grey.withOpacity(0.7))),
-              ],
-            ),
-          ),
-          Column(
+          // analytics cards
+          Row(
             children: [
-              IconButton(tooltip: "Copy JSON", icon: const Icon(Icons.copy), onPressed: () {
-                final json = {'victim_id': r.victimId, 'distance_cm': r.distanceCm, 'latitude': r.latitude, 'longitude': r.longitude, 'timestamp': r.timestamp}.toString();
-                Clipboard.setData(ClipboardData(text: json));
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Copied JSON")));
-              }),
-              IconButton(tooltip: "Open in Maps", icon: const Icon(Icons.map), onPressed: () => _openMap(r.latitude, r.longitude)),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        const Text('Total victims detected', style: TextStyle(fontSize: 12)),
+                        const SizedBox(height: 8),
+                        Text('$total', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        const Text('Avg distance (cm)', style: TextStyle(fontSize: 12)),
+                        const SizedBox(height: 8),
+                        Text(avgDistance.toStringAsFixed(1), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        const Text('% with GPS', style: TextStyle(fontSize: 12)),
+                        const SizedBox(height: 8),
+                        Text('$gpsPct%', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
-          )
+          ),
+          const SizedBox(height: 12),
+          // list of readings
+          ...readings.map((r) {
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: ListTile(
+                title: Text('Victim: ${r.victimId}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('Distance: ${r.distanceCm} cm\nLat: ${r.latitude ?? 'N/A'} | Lon: ${r.longitude ?? 'N/A'}\nTime: ${r.timestamp}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.copy),
+                  onPressed: () {
+                    // copy victim id to clipboard
+                    // no need for async state changes here
+                    // use Flutter's Clipboard API if available
+                    // import 'package:flutter/services.dart' at top if you want to enable
+                  },
+                ),
+              ),
+            );
+          }).toList(),
         ],
       ),
     );
@@ -219,41 +243,49 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    final title = _usingHosted ? 'Data Logging (Hosted)' : 'Data Logging';
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0B0E13) : const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text("Data Logging"),
+        title: Text(title),
         actions: [
-          IconButton(icon: const Icon(Icons.download), tooltip: 'Export PDF', onPressed: _downloadPdf),
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Download PDF',
+            onPressed: _downloadPdf,
+          ),
         ],
       ),
-      body: FutureBuilder<List<VictimReading>>(
+      body: _error != null
+          ? _buildErrorCard()
+          : FutureBuilder<List<VictimReading>>(
         future: _futureReadings,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
-
-          final data = snapshot.data ?? [];
-
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
-                child: Row(
-                  children: [
-                    _analyticsCard(title: "Unique Victims", value: "$_uniqueVictimsToday", icon: Icons.people, accent: Colors.cyanAccent),
-                    _analyticsCard(title: "Avg Distance (cm)", value: "${_avgDistanceToday.toStringAsFixed(1)}", icon: Icons.straighten, accent: Colors.tealAccent),
-                    _analyticsCard(title: "GPS % Today", value: "${_gpsPercentToday.toStringAsFixed(1)}%", icon: Icons.location_on, accent: Colors.redAccent),
-                  ],
-                ),
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            // surface the error and provide controls
+            if (_error == null) {
+              // capture it so we show the friendly card next build
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) setState(() => _error = snapshot.error.toString());
+              });
+            }
+            return _buildErrorCard();
+          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('No readings found', style: TextStyle(fontSize: 16)),
+                  const SizedBox(height: 8),
+                  ElevatedButton(onPressed: _load, child: const Text('Reload')),
+                ],
               ),
-              const SizedBox(height: 6),
-              Expanded(child: RefreshIndicator(onRefresh: _refresh, child: ListView.builder(padding: const EdgeInsets.only(bottom: 20), itemCount: data.length, itemBuilder: (_, i) => _readingCard(data[i])))),
-            ],
-          );
+            );
+          } else {
+            final readings = snapshot.data!;
+            return _buildList(readings);
+          }
         },
       ),
     );

@@ -4,160 +4,257 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:multicast_dns/multicast_dns.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/victim_reading.dart';
 
 class ApiService {
-  // CONFIG - update lanIp when your host changes networks
+  // Port your Flask app uses on local/dev machines
   static const int _port = 5001;
 
-  // Put your usual LAN IP here as a hint (can be empty string if you prefer)
-  // e.g. '172.20.45.32'
-  static const String lanIpHint = '172.20.45.32';
+  // Key for caching discovered base URL in shared prefs
+  static const String _cacheKey = 'api_cached_base';
 
-  // Optional public endpoints (ngrok or other)
-  static const List<String> publicUrls = [
-    // 'https://abcd1234.ngrok-free.app',
-  ];
-
-  // SharedPreferences key
-  static const String _kCachedBaseKey = 'api_cached_base';
-
-  // probe/persistence params
+  // Timeouts
   static const Duration _probeTimeout = Duration(seconds: 3);
-  static const int _probeRetries = 2;
   static const Duration _requestTimeout = Duration(seconds: 8);
 
-  // in-memory cached base
-  static String? _inMemoryCachedBase;
+  // In-memory cache (fast)
+  static String? _inMemoryBase;
 
-  // candidates built at runtime
-  late final List<String> _candidates;
+  // Optional LAN hints (ip strings without port)
+  final List<String> _lanHints;
 
-  ApiService() {
-    _candidates = _buildCandidates();
+  // Optional forced base (full URL, e.g. "https://web-production-...up.railway.app")
+  final String? _forcedBase;
+
+  // API key used for write operations (should match WRITE_API_KEY on server)
+  final String writeApiKey;
+
+  /// Constructor:
+  /// - lanHints: list of IPs (without port) to probe first
+  /// - forcedBase: if provided, used immediately (and persisted)
+  /// - writeApiKey: header value to use for POSTs
+  ApiService({List<String>? lanHints, String? forcedBase, this.writeApiKey = 'secret'})
+      : _lanHints = lanHints ?? [],
+        _forcedBase = forcedBase {
+    if (_forcedBase != null) {
+      _inMemoryBase = _forcedBase;
+      // persist in background
+      SharedPreferences.getInstance().then((prefs) => prefs.setString(_cacheKey, _forcedBase!));
+    }
   }
 
-  // Build candidate list in the preferred order
-  List<String> _buildCandidates() {
-    final List<String> c = [];
-
-    // 1) If desktop, prefer localhost first (most dev flows)
-    if (!kIsWeb && (Platform.isMacOS || Platform.isLinux || Platform.isWindows)) {
-      c.add('http://127.0.0.1:$_port');
-    }
-
-    // 2) LAN hint
-    if (lanIpHint.isNotEmpty) {
-      c.add('http://$lanIpHint:$_port');
-    }
-
-    // 3) any public urls
-    for (final u in publicUrls) {
-      final normalized = u.endsWith('/') ? u.substring(0, u.length - 1) : u;
-      c.add(normalized);
-    }
-
-    // 4) final fallback: localhost (ensure it's present)
-    final localhost = 'http://127.0.0.1:$_port';
-    if (!c.contains(localhost)) c.add(localhost);
-
-    return c;
+  /// Helper factory to immediately use your Railway hosted backend
+  factory ApiService.forHosted({String hostedUrl = 'https://web-production-87279.up.railway.app', String writeApiKey = 'secret'}) {
+    return ApiService(forcedBase: hostedUrl, writeApiKey: writeApiKey);
   }
 
-  // Clear both memory and persisted cache
+  // Public: clear persisted/in-memory cache
   static Future<void> clearCache() async {
-    _inMemoryCachedBase = null;
+    _inMemoryBase = null;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kCachedBaseKey);
+    await prefs.remove(_cacheKey);
   }
 
-  // Allow developer override
+  // Public: set custom base (persist)
   static Future<void> setCustomBase(String base) async {
-    _inMemoryCachedBase = base;
+    _inMemoryBase = base;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kCachedBaseKey, base);
+    await prefs.setString(_cacheKey, base);
   }
 
-  // Force a reprobe and return chosen base
+  // Force probe (re-discovers)
   Future<String> forceProbe() async {
-    _inMemoryCachedBase = null;
-    return await _ensureBaseUrl();
+    _inMemoryBase = null;
+    return await _ensureBase();
   }
 
-  // Public: fetch all readings (list)
+  // ---------- Public API ----------
+
   Future<List<VictimReading>> fetchAllReadings() async {
-    final base = await _ensureBaseUrl();
+    final base = await _ensureBase();
     final url = '$base/api/v1/readings/all';
     final body = await _getWithFallback(url);
     final List<dynamic> j = jsonDecode(body);
     return j.map((e) => VictimReading.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  // ==== internal: ensure we have a cached/persisted base ====
-  Future<String> _ensureBaseUrl() async {
-    // in-memory first
-    if (_inMemoryCachedBase != null) return _inMemoryCachedBase!;
+  Future<VictimReading> fetchLatest(String victimId) async {
+    final base = await _ensureBase();
+    final url = '$base/api/v1/victims/$victimId/latest';
+    final body = await _getWithFallback(url);
+    final Map<String, dynamic> j = jsonDecode(body);
+    return VictimReading.fromJson(j);
+  }
 
-    // persisted cache
+  /// Returns the direct PDF export URL (so the UI can open it in browser)
+  Future<String> pdfExportUrl() async {
+    final base = await _ensureBase();
+    return '$base/api/v1/readings/export/pdf';
+  }
+
+  /// Post a reading. Body must be a JSON-encodable map with keys:
+  /// victim_id (optional), distance_cm (required), latitude, longitude
+  Future<http.Response> postReading(Map<String, dynamic> body) async {
+    final base = await _ensureBase();
+    final uri = Uri.parse('$base/api/v1/readings');
+
+    final resp = await http
+        .post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': writeApiKey,
+      },
+      body: jsonEncode(body),
+    )
+        .timeout(_requestTimeout);
+
+    return resp;
+  }
+
+  // ---------- Internal: ensure base exists ----------
+  Future<String> _ensureBase() async {
+    if (_inMemoryBase != null) return _inMemoryBase!;
+
     final prefs = await SharedPreferences.getInstance();
-    final persisted = prefs.getString(_kCachedBaseKey);
-    if (persisted != null && persisted.isNotEmpty) {
-      _inMemoryCachedBase = persisted;
-      // quick validation: probe it once quickly
-      final ok = await _probe(persisted);
-      if (ok) return _inMemoryCachedBase!;
-      // if not ok, clear and continue probing
-      _inMemoryCachedBase = null;
-      await prefs.remove(_kCachedBaseKey);
+
+    // 1) persisted custom base
+    final persisted = prefs.getString(_cacheKey);
+    if (persisted != null) {
+      if (await _probe(persisted)) {
+        _inMemoryBase = persisted;
+        return persisted;
+      } else {
+        await prefs.remove(_cacheKey);
+      }
     }
 
-    // probe candidates sequentially
-    for (final c in _candidates) {
-      final ok = await _probe(c);
-      if (ok) {
-        _inMemoryCachedBase = c;
-        await prefs.setString(_kCachedBaseKey, c);
+    // 2) forcedBase provided in ctor (persist & return)
+    if (_forcedBase != null) {
+      _inMemoryBase = _forcedBase;
+      await prefs.setString(_cacheKey, _forcedBase!);
+      return _forcedBase!;
+    }
+
+    // 3) try localhost first on desktop (fast)
+    if (!kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
+      final local = 'http://127.0.0.1:$_port';
+      if (await _probe(local)) {
+        _inMemoryBase = local;
+        await prefs.setString(_cacheKey, local);
+        return local;
+      }
+    }
+
+    // 4) try LAN hints (if provided)
+    for (final ip in _lanHints) {
+      final candidate = 'http://$ip:$_port';
+      if (await _probe(candidate)) {
+        _inMemoryBase = candidate;
+        await prefs.setString(_cacheKey, candidate);
+        return candidate;
+      }
+    }
+
+    // 5) mDNS / zeroconf
+    final mdnsBase = await _discoverViaMdns();
+    if (mdnsBase != null) {
+      _inMemoryBase = mdnsBase;
+      await prefs.setString(_cacheKey, mdnsBase);
+      return mdnsBase;
+    }
+
+    // 6) brute force a short list of likely addresses (fallback)
+    final localProbeCandidates = [
+      'http://192.168.0.100:$_port',
+      'http://192.168.0.200:$_port',
+      'http://10.0.2.2:$_port', // Android emulator host
+    ];
+    for (final c in localProbeCandidates) {
+      if (await _probe(c)) {
+        _inMemoryBase = c;
+        await prefs.setString(_cacheKey, c);
         return c;
       }
     }
 
-    throw Exception('Could not reach any backend candidates: ${_candidates.join(', ')}');
+    throw Exception('Could not discover backend on local network.');
   }
 
-  // probe a single base by requesting /api/v1/readings/all
-  Future<bool> _probe(String candidate) async {
-    int attempt = 0;
-    while (attempt < _probeRetries) {
-      try {
-        final uri = Uri.parse(candidate + '/api/v1/readings/all');
-        final resp = await http.get(uri).timeout(_probeTimeout);
-        if (resp.statusCode == 200) return true;
-      } on TimeoutException {
-        // retry
-      } on SocketException {
-        // retry
-      } catch (_) {
-        // treat as failure
+  // ---------- mDNS discovery ----------
+  Future<String?> _discoverViaMdns({Duration timeout = const Duration(seconds: 3)}) async {
+    MDnsClient? client;
+    try {
+      client = MDnsClient();
+      await client.start();
+
+      final ptrStream = client.lookup<PtrResourceRecord>(
+          ResourceRecordQuery.serverPointer('_http._tcp.local'));
+
+      await for (final PtrResourceRecord ptr in ptrStream.timeout(timeout)) {
+        final srvStream = client.lookup<SrvResourceRecord>(
+            ResourceRecordQuery.service(ptr.domainName));
+
+        await for (final SrvResourceRecord srv in srvStream.timeout(timeout)) {
+          final ipStream = client.lookup<IPAddressResourceRecord>(
+              ResourceRecordQuery.addressIPv4(srv.target));
+
+          await for (final IPAddressResourceRecord ipRec in ipStream.timeout(timeout)) {
+            final ip = ipRec.address.address;
+            final port = srv.port == 0 ? _port : srv.port;
+            final base = 'http://$ip:$port';
+
+            // FIXED
+            try {
+              client.stop();
+            } catch (_) {}
+
+            return base;
+          }
+        }
       }
-      attempt++;
-      await Future.delayed(Duration(milliseconds: 150 * (1 << attempt)));
+
+      // FIXED
+      try {
+        client.stop();
+      } catch (_) {}
+
+    } catch (_) {
+      // FIXED
+      if (client != null) {
+        try {
+          client.stop();
+        } catch (_) {}
+      }
     }
-    return false;
+    return null;
   }
 
-  // perform GET; on failure force reprobe once and retry
+  // ---------- Probe helper ----------
+  Future<bool> _probe(String base) async {
+    try {
+      final uri = Uri.parse(base + '/api/v1/readings/all');
+      final resp = await http.get(uri).timeout(_probeTimeout);
+      return resp.statusCode == 200;
+    } on Exception {
+      return false;
+    }
+  }
+
+  // ---------- GET with fallback ----------
   Future<String> _getWithFallback(String url) async {
     try {
       final resp = await http.get(Uri.parse(url)).timeout(_requestTimeout);
       if (resp.statusCode == 200) return resp.body;
-      throw HttpException('Server responded ${resp.statusCode}');
-    } on Exception catch (_) {
-      // clear cached base and try reprobe (once)
+      throw HttpException('Server returned ${resp.statusCode}');
+    } on Exception {
+      // clear cached base and reprobe once
       await clearCache();
-      final base = await _ensureBaseUrl();
+      final base = await _ensureBase();
       final retryUrl = _replaceBase(url, base);
       final retryResp = await http.get(Uri.parse(retryUrl)).timeout(_requestTimeout);
       if (retryResp.statusCode == 200) return retryResp.body;
