@@ -249,7 +249,7 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                _legendCircle(const Color(0xFFE53935), "Life Detected"),
+                _legendCircle(const Color(0xFFE53935), "Human Detected"),
                 const SizedBox(width: 24),
                 _legendCircle(const Color(0xFFFF9100), "Noise Signal"),
                 const SizedBox(width: 24),

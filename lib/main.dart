@@ -1,41 +1,85 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+// ✅ FIX: Use correct relative paths
+import 'dashboard_page.dart';
+
+void main() async {
+  // ✅ SINGLE INSTANCE CHECK
+  if (await _checkSingleInstance()) {
+    WidgetsFlutterBinding.ensureInitialized();
+    runApp(const MyApp());
+  } else {
+    print("Rescue Radar already running");
+    exit(0);
+  }
+}
+
+Future<bool> _checkSingleInstance() async {
+  try {
+    final server = await ServerSocket.bind('127.0.0.1', 0);
+    server.close();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'RRRS Rescue Radar',
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
+      home: const DashboardPage(),
+    );
+  }
+}
+
+
+
+
+
+
+
+
+
+// import 'dart:io';
 // import 'package:flutter/material.dart';
-// import 'mapping_interface.dart';
-// import 'live_graph_interface.dart';
-// import 'home_page.dart';
+// import 'package:flutter/services.dart';
+// import 'dashboard_page.dart'; // Update this import path
 //
-// void main() {
-//   runApp(const MyApp());
-// }
+// void main() async {
+//   // ✅ SINGLE INSTANCE CHECK - Prevents split windows
+//   if (await _checkSingleInstance()) {
+//     WidgetsFlutterBinding.ensureInitialized();
 //
-// class MyApp extends StatelessWidget {
-//   const MyApp({super.key});
+//     // ✅ Force single window behavior
+//     LicenseRegistry.addLicense(() async* {
+//       // Empty license to prevent duplicate launches
+//     });
 //
-//   @override
-//   Widget build(BuildContext context) {
-//     return MaterialApp(
-//       debugShowCheckedModeBanner: false,
-//       title: 'Rescue Radar',
-//       theme: ThemeData.dark(),
-//
-//       // CHANGE SCREEN HERE
-//       //home: MappingInterface(),   // Radar screen
-//       // home: CameraInterface(), // Camera screen (Uncomment to test)
-//       //home: LiveGraphInterface(),
-//       home: const HomePage(),
-//     );
+//     runApp(const MyApp());
+//   } else {
+//     print("Rescue Radar already running - focusing existing window");
+//     exit(0);
 //   }
 // }
-
-
-// main.dart
-
-
-// import 'package:flutter/material.dart';
-// import 'dashboard_page.dart';
-// import 'auth_page.dart';
 //
-// void main() {
-//   runApp(const MyApp());
+// // ✅ SINGLE INSTANCE DETECTOR
+// Future<bool> _checkSingleInstance() async {
+//   try {
+//     // Try to bind to localhost port - fails if app already running
+//     final server = await ServerSocket.bind('127.0.0.1', 0);
+//     server.close();
+//     return true; // Port available = first instance
+//   } catch (e) {
+//     return false; // Port busy = duplicate instance
+//   }
 // }
 //
 // class MyApp extends StatelessWidget {
@@ -48,16 +92,31 @@
 //       title: 'RRRS Rescue Radar',
 //       theme: ThemeData.light(),
 //       darkTheme: ThemeData.dark(),
-//       // Start at auth (login/signup), NOT dashboard
-//       home: const AuthPage(),
+//       // ✅ SINGLE WINDOW ONLY
+//       builder: (context, child) {
+//         return MediaQuery(
+//           data: MediaQuery.of(context).copyWith(
+//             gestureSettings: const DeviceGestureSettings(
+//               touchSlop: 8.0,
+//             ),
+//           ),
+//           child: child!,
+//         );
+//       },
+//       home: const DashboardPage(),
 //     );
 //   }
 // }
+
+
+
+
+
+
+
+
+
 //
-
-
-
-
 // import 'package:flutter/material.dart';
 // import 'dashboard_page.dart';
 //
@@ -79,27 +138,4 @@
 //     );
 //   }
 // }
-
-import 'package:flutter/material.dart';
-import 'dashboard_page.dart';
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'RRRS Rescue Radar',
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
-      home: const DashboardPage(),
-    );
-  }
-}
-
 

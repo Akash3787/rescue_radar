@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'mapping_interface.dart';
+import 'camera_interface.dart';
 import 'live_graph_interface.dart';
 import 'victim_readings_page.dart';
 
@@ -22,14 +23,12 @@ class _DashboardPageState extends State<DashboardPage> {
   int selectedIndex = 0;
 
   final List<Widget> pages = [
-    const Center(
-      child: Text(
-        'Dashboard Overview',
-        style: TextStyle(fontSize: 24),
-      ),
-    ),
+    const VictimReadingsPage(),
+    //const VictimReadingsPage(),
     const MappingInterface(),
     const LiveGraphInterface(),
+    CameraInterface(),
+
   ];
 
   @override
@@ -210,6 +209,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+
   // ========== DASHBOARD GRID ==========
 
   Widget _buildDashboardGrid(bool isDarkMode) {
@@ -240,7 +240,7 @@ class _DashboardPageState extends State<DashboardPage> {
         description: 'Visual access via cameras',
         imageAsset: 'images/cam inter.png',
         accent: Colors.cyanAccent,
-        onTap: () {},
+        onTap: () => _navigateTo(VictimReadingsPage()),
       ),
     ];
 

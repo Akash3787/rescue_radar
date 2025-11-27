@@ -15,7 +15,9 @@ class VictimReadingsPage extends StatefulWidget {
 }
 
 class _VictimReadingsPageState extends State<VictimReadingsPage> {
-  final ApiService _apiService = ApiService();
+  final ApiService _apiService = ApiService(
+    forcedBase: 'http://172.20.45.32:5001',
+  );
   late Future<List<VictimReading>> _futureReadings;
 
   // Analytics values (updated after load)
@@ -26,6 +28,8 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   @override
   void initState() {
     super.initState();
+    // quick hint: replace with your server IP found above
+    //_futureReadings = ApiService(lanHints: ['192.168.0.200:5001']).fetchAllReadings();
     _futureReadings = _loadAndCompute();
   }
 
@@ -81,7 +85,8 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   }
 
   Future<void> _downloadPdf() async {
-    final uri = Uri.parse("http://127.0.0.1:5001/api/v1/readings/export/pdf");
+    //final uri = Uri.parse("http://127.0.0.1:5001/api/v1/readings/export/pdf");
+    final uri = Uri.parse("http://192.168.0.200:5001/api/v1/readings/export/pdf");
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
