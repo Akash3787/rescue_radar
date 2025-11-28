@@ -1,18 +1,20 @@
-import 'dart:io';
+import 'dart:io'; // FIXED
+import 'package:flutter/foundation.dart'; // kIsWeb
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-// ✅ FIX: Use correct relative paths
 import 'dashboard_page.dart';
 
 void main() async {
-  // ✅ SINGLE INSTANCE CHECK
-  if (await _checkSingleInstance()) {
-    WidgetsFlutterBinding.ensureInitialized();
-    runApp(const MyApp());
-  } else {
-    print("Rescue Radar already running");
-    exit(0);
-  }
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // if (!kIsWeb && Platform.isMacOS) {
+  //   if (!await _checkSingleInstance()) {
+  //     print("Rescue Radar already running");
+  //     //return; // NO EXIT
+  //     exit(0);
+  //   }
+  // }
+
+  runApp(const MyApp());
 }
 
 Future<bool> _checkSingleInstance() async {
@@ -39,8 +41,6 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
-
 
 
 
