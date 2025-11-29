@@ -79,6 +79,16 @@ class _CameraInterfaceState extends State<CameraInterface> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        elevation: 0,
+        automaticallyImplyLeading: true, // ✅ This shows the default back arrow
+        title: Text(
+          "Camera Feed",
+          style: TextStyle(color: Colors.white),
+        ),
+        iconTheme: IconThemeData(color: Colors.white), // makes arrow white
+      ),
       body: Stack(
         children: [
           // ESP32 Camera feed viewport
@@ -127,6 +137,23 @@ class _CameraInterfaceState extends State<CameraInterface> {
                   Center(
                     child: Icon(Icons.add, color: Colors.white54, size: 40),
                   ),
+
+                  // // Add this at the top of your Stack's children:
+                  // Positioned(
+                  //   top: 20,
+                  //   left: 20,
+                  //   child: InkWell(
+                  //     onTap: () => Navigator.pop(context),
+                  //     child: Container(
+                  //       padding: EdgeInsets.all(6),
+                  //       decoration: BoxDecoration(
+                  //         color: Colors.black54,
+                  //         borderRadius: BorderRadius.circular(6),
+                  //       ),
+                  //       child: Icon(Icons.arrow_back, color: Colors.white, size: 28),
+                  //     ),
+                  //   ),
+                  // ),
 
                   // Corner overlays
                   Positioned(

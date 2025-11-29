@@ -240,7 +240,7 @@ class _DashboardPageState extends State<DashboardPage> {
         description: 'Visual access via cameras',
         imageAsset: 'images/cam inter.png',
         accent: Colors.cyanAccent,
-        onTap: () => _navigateTo(VictimReadingsPage()),
+        onTap: () => _navigateTo(CameraInterface()),
       ),
     ];
 
