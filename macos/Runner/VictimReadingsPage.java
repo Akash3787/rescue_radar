@@ -1,8 +1,11 @@
-// lib/victim_readings_page.dart
-
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
+import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:open_file/open_file.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'models/victim_reading.dart';
 import 'services/api_service.dart';
@@ -20,13 +23,12 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
 
   String? _error;
   bool _usingHosted = false;
+  bool _isDownloading = false;
 
   @override
   void initState() {
     super.initState();
-    // Start with discovery mode
     _apiService = ApiService();
-
     _load();
   }
 
@@ -46,7 +48,6 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
 
   Future<void> _retryDiscovery() async {
     setState(() => _error = null);
-
     try {
       await ApiService.clearCache();
       _apiService = ApiService();
@@ -57,27 +58,21 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   }
 
   Future<void> _useHosted() async {
-    // immediate UI feedback
     setState(() {
       _usingHosted = true;
       _error = null;
     });
 
     try {
-      // switch ApiService to hosted (this returns an instance)
       final hosted = ApiService.forHosted();
       _apiService = hosted;
 
-      // persist the choice so future launches use hosted
-      // if ApiService.setCustomBase exists, this will persist; if not, see step 2.
       try {
         await ApiService.setCustomBase('https://web-production-87279.up.railway.app');
       } catch (e) {
-        // not fatal — continue even if persistence helper is missing
         debugPrint('setCustomBase missing or failed: $e');
       }
 
-      // reload data from hosted server and surface errors if any
       await _load();
     } catch (e, st) {
       debugPrint('useHosted error: $e\n$st');
@@ -91,25 +86,89 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   }
 
   Future<void> _downloadPdf() async {
+    if (_isDownloading) return;
+    
+    setState(() => _isDownloading = true);
+    
     try {
-      final pdfUrl = await _apiService.pdfExportUrl();
-      final uri = Uri.parse(pdfUrl);
-
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        throw Exception("Could not launch");
-      }
-    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("PDF error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Downloading PDF...")),
+        );
       }
+
+      final pdfUrl = await _apiService.pdfExportUrl();
+
+      // Request permissions
+      if (Platform.isAndroid) {
+        final status = await Permission.storage.request();
+        if (!status.isGranted) {
+          throw Exception("Storage permission required");
+        }
+      }
+
+      // Get Downloads directory
+      String directoryPath;
+      if (Platform.isAndroid) {
+        directoryPath = '/storage/emulated/0/Download';
+        final dir = Directory(directoryPath);
+        if (!await dir.exists()) {
+          directoryPath = (await getExternalStorageDirectory())?.path ?? '';
+        }
+      } else {
+        directoryPath = (await getApplicationDocumentsDirectory()).path;
+      }
+
+      // Create unique filename
+      final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final fileName = 'victim_readings_$timestamp.pdf';
+      final filePath = '$directoryPath/$fileName';
+
+      // Download with Dio
+      final dio = Dio();
+      await dio.download(
+        pdfUrl,
+        filePath,
+        onReceiveProgress: (received, total) {
+          if (total != -1) {
+            final progress = (received / total * 100).round();
+            debugPrint('Download progress: $progress%');
+          }
+        },
+      );
+
+      // Success
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("PDF saved to Downloads!\n$fileName"),
+            backgroundColor: Colors.green,
+            action: SnackBarAction(
+              label: 'Open',
+              onPressed: () => OpenFile.open(filePath),
+            ),
+          ),
+        );
+      }
+
+    } catch (e) {
+      debugPrint('Download error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Download failed: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
   Future<void> _refresh() async {
     try {
       await _apiService.forceProbe();
-
       if (mounted) {
         setState(() {
           _futureReadings = _apiService.fetchAllReadings();
@@ -141,7 +200,6 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-
             Wrap(
               spacing: 12,
               children: [
@@ -157,19 +215,42 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 8),
-
             TextButton(
-                child: const Text("Clear discovery cache"),
-                onPressed: () async {
-                  await ApiService.clearCache();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Cache cleared")));
-                  }
-                })
+              child: const Text("Clear discovery cache"),
+              onPressed: () async {
+                await ApiService.clearCache();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Cache cleared")),
+                  );
+                }
+              },
+            )
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _metricCard(String label, String value, IconData icon, Color color) {
+    return Expanded(
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        color: color.withOpacity(0.15),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(height: 8),
+              Text(label, style: TextStyle(fontSize: 14, color: color)),
+              const SizedBox(height: 6),
+              Text(value,
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+            ],
+          ),
         ),
       ),
     );
@@ -177,13 +258,10 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
 
   Widget _buildList(List<VictimReading> readings) {
     final total = readings.length;
-
     final avgDist = total == 0
         ? 0
         : (readings.map((e) => e.distanceCm).reduce((a, b) => a + b) / total);
-
     final gpsCount = readings.where((r) => r.latitude != null).length;
-
     final gpsPct = total == 0 ? 0 : ((gpsCount / total) * 100).round();
 
     return RefreshIndicator(
@@ -191,59 +269,42 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // analytics cards
           Row(
             children: [
-              _metricCard("Victims", "$total"),
+              _metricCard("Victims", "$total", Icons.person, Colors.blue),
               const SizedBox(width: 10),
-              _metricCard("Avg Dist (cm)", avgDist.toStringAsFixed(1)),
+              _metricCard("Avg Dist (cm)", avgDist.toStringAsFixed(1), Icons.straighten, Colors.green),
               const SizedBox(width: 10),
-              _metricCard("% with GPS", "$gpsPct%"),
+              _metricCard("% with GPS", "$gpsPct%", Icons.location_on, Colors.orange),
             ],
           ),
-
           const SizedBox(height: 14),
-
           ...readings.map((r) => Card(
+            elevation: 3,
+            shadowColor: Colors.grey[300],
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             margin: const EdgeInsets.symmetric(vertical: 8),
             child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
               title: Text("Victim: ${r.victimId}",
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text(
                 "Distance: ${r.distanceCm} cm\n"
-                    "Lat: ${r.latitude ?? "N/A"} | Lon: ${r.longitude ?? "N/A"}\n"
-                    "Time: ${r.timestamp}",
+                "Lat: ${r.latitude ?? "N/A"} | Lon: ${r.longitude ?? "N/A"}\n"
+                "Time: ${r.timestamp}",
               ),
               trailing: IconButton(
                 icon: const Icon(Icons.copy),
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: r.victimId));
                   ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Copied victim ID")));
+                    const SnackBar(content: Text("Copied victim ID")),
+                  );
                 },
               ),
             ),
           ))
         ],
-      ),
-    );
-  }
-
-  Widget _metricCard(String label, String value) {
-    return Expanded(
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            children: [
-              Text(label, style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 6),
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -257,48 +318,24 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
         title: Text(title),
         actions: [
           IconButton(
-              icon: const Icon(Icons.download),
-              tooltip: "Download PDF",
-              onPressed: _downloadPdf)
+            icon: _isDownloading 
+                ? const SizedBox(
+                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
+                : const Icon(Icons.download),
+            tooltip: "Download PDF",
+            onPressed: _isDownloading ? null : _downloadPdf,
+          )
         ],
       ),
       body: _error != null
           ? _buildErrorCard()
-          : FutureBuilder(
-        future: _futureReadings,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+          : FutureBuilder<List<VictimReading>>(
+              future: _futureReadings,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-          if (snapshot.hasError) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                setState(() => _error = snapshot.error.toString());
-              }
-            });
-            return _buildErrorCard();
-          }
-
-          final data = snapshot.data;
-
-          if (data == null || data.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text("No readings found"),
-                  const SizedBox(height: 10),
-                  ElevatedButton(
-                      onPressed: _load, child: const Text("Reload"))
-                ],
-              ),
-            );
-          }
-
-          return _buildList(data);
-        },
-      ),
-    );
-  }
-}
+                if (snapshot.hasError) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if
