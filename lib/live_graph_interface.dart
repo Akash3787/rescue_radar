@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 
+import 'main.dart'; // for ThemeController
+
 class LiveGraphInterface extends StatefulWidget {
   const LiveGraphInterface({super.key});
 
@@ -25,6 +27,8 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
   }
 
   void _generateSampleData() {
+    distanceHistory.clear();
+
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
     final Random rnd = Random(42); // Fixed seed for demo
 
@@ -34,7 +38,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
       double distance = 4.2;
 
       // Simulate aftershocks and rubble shifts
-      if (i == 8) distance += 1.2;  // Aftershock #1 - falls deeper
+      if (i == 8) distance += 1.2; // Aftershock #1 - falls deeper
       if (i == 15) distance -= 0.8; // Rubble shift - closer
       if (i == 22) distance += 0.6; // Aftershock #2 - deeper again
 
@@ -49,18 +53,38 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    final baseTextColor = isDarkMode ? Colors.white : Colors.black87;
+    final secondaryTextColor = isDarkMode ? Colors.white70 : Colors.black54;
+    final hintTextColor = isDarkMode ? Colors.white54 : Colors.black45;
+
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final displaySamples = distanceHistory.where((s) => s.t >= now - windowSeconds).toList();
+    final displaySamples =
+    distanceHistory.where((s) => s.t >= now - windowSeconds).toList();
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      // Use theme background so light mode is softer
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Distance vs Time'),
-        backgroundColor: Colors.indigo[900],
-        foregroundColor: Colors.white,
+        title: Text(
+          'Distance vs Time',
+          style: TextStyle(color: baseTextColor),
+        ),
+        backgroundColor: isDarkMode
+            ? const Color(0xFF151922)
+            : Theme.of(context).colorScheme.inversePrimary,
+        foregroundColor: baseTextColor,
         actions: [
+          // Theme toggle (same as dashboard)
+          Switch(
+            value: ThemeController.of(context)?.isDark ?? false,
+            onChanged: (value) {
+              ThemeController.of(context)?.onToggle(value);
+            },
+          ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh, color: baseTextColor),
             onPressed: _generateSampleData,
           ),
         ],
@@ -74,45 +98,79 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.grey[900],
+                color: isDarkMode
+                    ? Colors.grey[900]
+                    : Theme.of(context).colorScheme.surface,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 children: [
-                  Text('Current: ${currentDistance.toStringAsFixed(1)}m',
-                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                  Text(status, style: TextStyle(color: Colors.white70, fontSize: 16)),
-                  Text('60 second monitoring window', style: TextStyle(color: Colors.white54)),
+                  Text(
+                    'Current: ${currentDistance.toStringAsFixed(1)}m',
+                    style: TextStyle(
+                      color: baseTextColor,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    status,
+                    style: TextStyle(
+                      color: secondaryTextColor,
+                      fontSize: 16,
+                    ),
+                  ),
+                  Text(
+                    '60 second monitoring window',
+                    style: TextStyle(color: hintTextColor),
+                  ),
                 ],
               ),
             ),
 
             const SizedBox(height: 16),
 
-            // Graph (90% screen)
+            // Graph
             Expanded(
               child: Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Colors.grey[900],
+                  color: isDarkMode
+                      ? Colors.grey[900]
+                      : Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.indigoAccent, width: 2),
+                  border: Border.all(
+                      color: Colors.indigoAccent.withOpacity(0.8), width: 2),
                 ),
                 padding: const EdgeInsets.all(20),
                 child: CustomPaint(
-                  painter: SimpleDistanceTimePainter(displaySamples, windowSeconds),
+                  painter: SimpleDistanceTimePainter(
+                    displaySamples,
+                    windowSeconds,
+                  ),
                 ),
               ),
             ),
 
             const SizedBox(height: 12),
-            const Row(
+
+            Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('← Older        Time → NOW',
-                    style: TextStyle(color: Colors.white70, fontSize: 14)),
-                Text('↑ Distance (meters)',
-                    style: TextStyle(color: Colors.white70, fontSize: 14)),
+                Text(
+                  '← Older        Time → NOW',
+                  style: TextStyle(
+                    color: secondaryTextColor,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  '↑ Distance (meters)',
+                  style: TextStyle(
+                    color: secondaryTextColor,
+                    fontSize: 14,
+                  ),
+                ),
               ],
             ),
           ],
@@ -143,19 +201,25 @@ class SimpleDistanceTimePainter extends CustomPainter {
     final plotWidth = size.width - leftPadding - rightPadding;
     final plotHeight = size.height - topPadding - bottomPadding;
 
-    // Background
+    // Background of plot area (keep dark for contrast with neon line)
     final bgPaint = Paint()..color = Colors.black87;
-    canvas.drawRRect(RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(16)), bgPaint);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Offset.zero & size,
+        const Radius.circular(16),
+      ),
+      bgPaint,
+    );
 
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
     final windowStart = now - windowSeconds;
 
-    // Simple grid
+    // Grid
     final gridPaint = Paint()
       ..color = Colors.white.withOpacity(0.15)
       ..strokeWidth = 1;
 
-    // Depth grid lines (0-10m)
+    // Depth grid lines (0–10 m)
     for (int i = 0; i <= 5; i++) {
       final y = topPadding + (i / 5.0) * plotHeight;
       canvas.drawLine(
@@ -177,19 +241,31 @@ class SimpleDistanceTimePainter extends CustomPainter {
 
     final tp = TextPainter(textDirection: TextDirection.ltr);
 
-    // Labels
+    // Y labels
     const labels = ['0m', '2m', '4m', '6m', '8m', '10m'];
     for (int i = 0; i < labels.length; i++) {
-      tp.text = TextSpan(text: labels[i], style: const TextStyle(color: Colors.white60, fontSize: 12));
+      tp.text = const TextSpan(
+        text: '',
+      );
+      tp.text = TextSpan(
+        text: labels[i],
+        style: const TextStyle(color: Colors.white60, fontSize: 12),
+      );
       tp.layout();
-      final y = topPadding + plotHeight - (i / 5.0) * plotHeight - tp.height / 2;
+      final y = topPadding +
+          plotHeight -
+          (i / 5.0) * plotHeight -
+          tp.height / 2;
       tp.paint(canvas, Offset(8, y));
     }
 
     // Time labels
     for (int i = 0; i <= 5; i++) {
       final sec = (windowSeconds * i / 5).round();
-      tp.text = TextSpan(text: '$sec s', style: const TextStyle(color: Colors.white60, fontSize: 12));
+      tp.text = TextSpan(
+        text: '$sec s',
+        style: const TextStyle(color: Colors.white60, fontSize: 12),
+      );
       tp.layout();
       final x = leftPadding + (i / 5.0) * plotWidth - tp.width / 2;
       tp.paint(canvas, Offset(x, size.height - 35));
@@ -197,14 +273,15 @@ class SimpleDistanceTimePainter extends CustomPainter {
 
     if (samples.isEmpty) return;
 
-    // Draw line
+    // Distance line
     final path = Path();
     bool first = true;
 
     for (final sample in samples) {
       if (sample.t < windowStart) continue;
 
-      final xNorm = ((sample.t - windowStart) / windowSeconds).clamp(0.0, 1.0);
+      final xNorm =
+      ((sample.t - windowStart) / windowSeconds).clamp(0.0, 1.0);
       final x = leftPadding + xNorm * plotWidth;
 
       final yNorm = (sample.distance / 10.0).clamp(0.0, 1.0);
@@ -236,7 +313,8 @@ class SimpleDistanceTimePainter extends CustomPainter {
     // Current point
     if (samples.isNotEmpty) {
       final last = samples.last;
-      final xNorm = ((last.t - windowStart) / windowSeconds).clamp(0.0, 1.0);
+      final xNorm =
+      ((last.t - windowStart) / windowSeconds).clamp(0.0, 1.0);
       final x = leftPadding + xNorm * plotWidth;
       final yNorm = (last.distance / 10.0).clamp(0.0, 1.0);
       final y = topPadding + plotHeight - (yNorm * plotHeight);

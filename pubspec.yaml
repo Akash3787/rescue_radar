@@ -20,7 +20,8 @@ dependencies:
   dio: ^5.7.0        # For downloading files
   path_provider: ^2.1.5  # For file paths
   open_file: ^3.5.10     # To open downloaded PDF
-  permission_handler: ^12.0.1  # For storage permissions (Android)
+  permission_handler: ^11.3.1  # For storage permissions (Android)
+
 
 
 
@@ -38,3 +39,4 @@ flutter:
     - images/data logging.png
     - images/heart.png
     - images/map.png
+    - images/LiveGraph.png

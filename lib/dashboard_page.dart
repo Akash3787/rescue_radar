@@ -3,6 +3,7 @@ import 'mapping_interface.dart';
 import 'camera_interface.dart';
 import 'live_graph_interface.dart';
 import 'victim_readings_page.dart';
+import 'main.dart'; // for ThemeController
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -24,11 +25,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
   final List<Widget> pages = [
     const VictimReadingsPage(),
-    //const VictimReadingsPage(),
     const MappingInterface(),
     const LiveGraphInterface(),
     CameraInterface(),
-
   ];
 
   @override
@@ -36,8 +35,8 @@ class _DashboardPageState extends State<DashboardPage> {
     final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor:
-      isDarkMode ? const Color(0xFF07090C) : const Color(0xFFF5F7FA),
+      // use theme background so light is softer (from main.dart theme)
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Row(
         children: [
           // SIDEBAR
@@ -98,7 +97,7 @@ class _DashboardPageState extends State<DashboardPage> {
           Expanded(
             child: Column(
               children: [
-                // TOP BAR (updated)
+                // TOP BAR
                 Container(
                   height: 56,
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -126,9 +125,8 @@ class _DashboardPageState extends State<DashboardPage> {
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
-                              color: isDarkMode
-                                  ? Colors.white
-                                  : Colors.black87,
+                              color:
+                              isDarkMode ? Colors.white : Colors.black87,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -147,9 +145,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           width: double.infinity,
                           child: TextField(
                             style: TextStyle(
-                              color: isDarkMode
-                                  ? Colors.white
-                                  : Colors.black87,
+                              color:
+                              isDarkMode ? Colors.white : Colors.black87,
                             ),
                             decoration: InputDecoration(
                               filled: true,
@@ -175,18 +172,30 @@ class _DashboardPageState extends State<DashboardPage> {
 
                       const SizedBox(width: 12),
 
+                      // THEME TOGGLE SWITCH
+                      Switch(
+                        value:
+                        ThemeController.of(context)?.isDark ?? false,
+                        onChanged: (value) {
+                          ThemeController.of(context)?.onToggle(value);
+                        },
+                      ),
+
+                      const SizedBox(width: 12),
+
                       Icon(
                         Icons.notifications,
-                        color: isDarkMode
-                            ? Colors.white70
-                            : Colors.black54,
+                        color:
+                        isDarkMode ? Colors.white70 : Colors.black54,
                       ),
                       const SizedBox(width: 12),
 
                       CircleAvatar(
-                        backgroundColor:
-                        isDarkMode ? Colors.cyanAccent : Colors.teal[700],
-                        child: const Icon(Icons.person, color: Colors.white),
+                        backgroundColor: isDarkMode
+                            ? Colors.cyanAccent
+                            : Colors.teal[700],
+                        child:
+                        const Icon(Icons.person, color: Colors.white),
                       ),
                     ],
                   ),
@@ -209,7 +218,6 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-
   // ========== DASHBOARD GRID ==========
 
   Widget _buildDashboardGrid(bool isDarkMode) {
@@ -231,7 +239,7 @@ class _DashboardPageState extends State<DashboardPage> {
       _DashboardCardData(
         title: 'Live Heartbeat Graph',
         description: 'Monitor live vital signs',
-        imageAsset: 'images/heart.png',
+        imageAsset: 'images/LiveGraph.png',
         accent: Colors.cyanAccent,
         onTap: () => _navigateTo(const LiveGraphInterface()),
       ),

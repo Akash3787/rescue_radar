@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 
+import 'main.dart';
+
 class MappingInterface extends StatefulWidget {
   const MappingInterface({super.key});
 
