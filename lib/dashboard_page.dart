@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'mapping_interface.dart';
 import 'camera_interface.dart';
 import 'live_graph_interface.dart';
@@ -22,6 +23,7 @@ class _DashboardPageState extends State<DashboardPage> {
   ];
 
   int selectedIndex = 0;
+  bool isLightOn = false; // LED Toggle State
 
   final List<Widget> pages = [
     const VictimReadingsPage(),
@@ -35,7 +37,6 @@ class _DashboardPageState extends State<DashboardPage> {
     final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      // use theme background so light is softer (from main.dart theme)
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Row(
         children: [
@@ -81,7 +82,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                         tileColor: active
                             ? (isDarkMode
-                            ? Colors.blue.withValues(alpha: 0.15)
+                            ? Colors.blue.withAlpha(40)
                             : Colors.blue[50])
                             : Colors.transparent,
                         onTap: () => setState(() => selectedIndex = index),
@@ -107,15 +108,14 @@ class _DashboardPageState extends State<DashboardPage> {
                     boxShadow: [
                       BoxShadow(
                         color: isDarkMode
-                            ? Colors.black.withValues(alpha: 0.6)
-                            : Colors.grey.withValues(alpha: 0.3),
+                            ? Colors.black.withAlpha(150)
+                            : Colors.grey.withAlpha(100),
                         blurRadius: 4,
                       ),
                     ],
                   ),
                   child: Row(
                     children: [
-                      // Page title
                       Flexible(
                         flex: 0,
                         child: ConstrainedBox(
@@ -132,47 +132,41 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         ),
                       ),
-
                       const Spacer(),
-
-                      // Search bar (responsive)
-                      // ConstrainedBox(
-                      //   constraints: const BoxConstraints(
-                      //     maxWidth: 420,
-                      //     minWidth: 120,
-                      //   ),
-                      //   child: SizedBox(
-                      //     width: double.infinity,
-                      //     child: TextField(
-                      //       style: TextStyle(
-                      //         color:
-                      //         isDarkMode ? Colors.white : Colors.black87,
-                      //       ),
-                      //       decoration: InputDecoration(
-                      //         filled: true,
-                      //         fillColor: isDarkMode
-                      //             ? const Color(0xFF1C212C)
-                      //             : const Color(0xFFF0F2F5),
-                      //         prefixIcon: Icon(
-                      //           Icons.search,
-                      //           color: isDarkMode
-                      //               ? Colors.white54
-                      //               : Colors.black38,
-                      //         ),
-                      //         hintText: 'Search...',
-                      //         border: OutlineInputBorder(
-                      //           borderRadius: BorderRadius.circular(8),
-                      //           borderSide: BorderSide.none,
-                      //         ),
-                      //         isDense: true,
-                      //       ),
-                      //     ),
-                      //   ),
-                      // ),
-
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: 420,
+                          minWidth: 120,
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: TextField(
+                            style: TextStyle(
+                              color:
+                              isDarkMode ? Colors.white : Colors.black87,
+                            ),
+                            decoration: InputDecoration(
+                              filled: true,
+                              fillColor: isDarkMode
+                                  ? const Color(0xFF1C212C)
+                                  : const Color(0xFFF0F2F5),
+                              prefixIcon: Icon(
+                                Icons.search,
+                                color: isDarkMode
+                                    ? Colors.white54
+                                    : Colors.black38,
+                              ),
+                              hintText: 'Search...',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide.none,
+                              ),
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                      ),
                       const SizedBox(width: 12),
-
-                      // THEME TOGGLE SWITCH
                       Switch(
                         value:
                         ThemeController.of(context)?.isDark ?? false,
@@ -180,16 +174,13 @@ class _DashboardPageState extends State<DashboardPage> {
                           ThemeController.of(context)?.onToggle(value);
                         },
                       ),
-
                       const SizedBox(width: 12),
-
                       Icon(
                         Icons.notifications,
                         color:
                         isDarkMode ? Colors.white70 : Colors.black54,
                       ),
                       const SizedBox(width: 12),
-
                       CircleAvatar(
                         backgroundColor: isDarkMode
                             ? Colors.cyanAccent
@@ -201,13 +192,51 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
 
-                // BODY
+                // BODY WITH GRID + BUTTONS (STACK)
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(20),
-                    child: selectedIndex == 0
-                        ? _buildDashboardGrid(isDarkMode)
-                        : pages[selectedIndex - 1],
+                    child: Stack(
+                      children: [
+                        // Original Grid
+                        selectedIndex == 0
+                            ? _buildDashboardGrid(isDarkMode)
+                            : pages[selectedIndex - 1],
+
+                        // Modern Toggle Switches (Virtual Box Position - Bottom Left)
+                        Positioned(
+                          bottom: 40,
+                          right: 30,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // SOS Toggle Switch (No white circle)
+                              _ModernToggleSwitch(
+                                isActive: true,
+                                title: 'SOS',
+                                activeColor: const Color(0xFFFF4757),
+                                icon: Icons.warning_amber_rounded,
+                                onTap: _sendSOSAlert,
+                              ),
+                              const SizedBox(height: 10),
+                              // Light Toggle Switch (No white circle)
+                              _ModernToggleSwitch(
+                                isActive: isLightOn,
+                                title: 'LED',
+                                activeColor: const Color(0xFF2ED573),
+                                icon: isLightOn ? Icons.lightbulb : Icons.lightbulb_outline,
+                                onTap: () {
+                                  setState(() {
+                                    isLightOn = !isLightOn;
+                                  });
+                                  _toggleLight(isLightOn);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -218,7 +247,16 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ========== DASHBOARD GRID ==========
+  // SEND SOS TO FLASK → ESP
+  void _sendSOSAlert() async {
+    final url = Uri.parse("http://your-flask-server-ip/send-sos");
+    await http.post(url);
+  }
+
+  void _toggleLight(bool status) async {
+    final url = Uri.parse("http://your-flask-server-ip/toggle-light");
+    await http.post(url, body: {"status": status ? "ON" : "OFF"});
+  }
 
   Widget _buildDashboardGrid(bool isDarkMode) {
     final cardData = [
@@ -275,8 +313,175 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-// ========== CARD WIDGET ==========
+// ========== MODERN TOGGLE SWITCH ==========
+class _ModernToggleSwitch extends StatefulWidget {
+  final bool isActive;
+  final String title;
+  final Color activeColor;
+  final IconData icon;
+  final VoidCallback onTap;
 
+  const _ModernToggleSwitch({
+    required this.isActive,
+    required this.title,
+    required this.activeColor,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  _ModernToggleSwitchState createState() => _ModernToggleSwitchState();
+}
+
+class _ModernToggleSwitchState extends State<_ModernToggleSwitch>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _glowAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.05,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    ));
+
+    _glowAnimation = Tween<double>(
+      begin: 0.2,
+      end: 0.6,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    ));
+
+    if (widget.isActive) {
+      _controller.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ModernToggleSwitch oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive != oldWidget.isActive) {
+      if (widget.isActive) {
+        _controller.forward();
+      } else {
+        _controller.reverse();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              width: 100,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
+                  colors: widget.isActive
+                      ? [
+                    widget.activeColor,
+                    widget.activeColor.withOpacity(0.8),
+                  ]
+                      : isDarkMode
+                      ? [
+                    const Color(0xFF2A2E3D),
+                    const Color(0xFF1F2332),
+                  ]
+                      : [
+                    Colors.grey[300]!,
+                    Colors.grey[400]!,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: widget.activeColor.withOpacity(_glowAnimation.value),
+                    blurRadius: 15,
+                    spreadRadius: widget.isActive ? 1 : 0,
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+                border: Border.all(
+                  color: widget.isActive
+                      ? widget.activeColor.withOpacity(0.5)
+                      : Colors.transparent,
+                  width: 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                  // White circle COMPLETELY REMOVED from both switches
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ========== CARD WIDGET ==========
 class _DashboardNeatCard extends StatelessWidget {
   final _DashboardCardData data;
   final bool isDarkMode;
@@ -289,8 +494,8 @@ class _DashboardNeatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final borderColor = isDarkMode
-        ? data.accent.withValues(alpha: 0.55)
-        : Colors.blueGrey.withValues(alpha: 0.45);
+        ? data.accent.withAlpha(140)
+        : Colors.blueGrey.withAlpha(120);
 
     return GestureDetector(
       onTap: data.onTap,
@@ -302,13 +507,13 @@ class _DashboardNeatCard extends StatelessWidget {
           boxShadow: [
             if (isDarkMode)
               BoxShadow(
-                color: data.accent.withValues(alpha: 0.18),
+                color: data.accent.withAlpha(40),
                 blurRadius: 18,
                 offset: const Offset(0, 10),
               )
             else
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
+                color: Colors.black.withAlpha(20),
                 blurRadius: 12,
                 offset: const Offset(0, 6),
               ),
@@ -329,14 +534,14 @@ class _DashboardNeatCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: isDarkMode ? Colors.white : Colors.black87, // FIXED: Conditional color
+                        color: isDarkMode ? Colors.white : Colors.black87,
                       ),
                     ),
                   ),
-                  Icon(
+                  const Icon(
                     Icons.keyboard_arrow_down,
                     size: 18,
-                    color: isDarkMode ? Colors.white60 : Colors.black54, // FIXED: Conditional color
+                    color: Colors.white60,
                   ),
                 ],
               ),
@@ -350,7 +555,7 @@ class _DashboardNeatCard extends StatelessWidget {
                         : const Color(0xFFF2F4F8),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.05),
+                      color: Colors.white.withAlpha(20),
                     ),
                   ),
                   padding: const EdgeInsets.all(6),
@@ -371,7 +576,9 @@ class _DashboardNeatCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
-                        color: isDarkMode ? Colors.white70 : Colors.black54,
+                        color: isDarkMode
+                            ? Colors.white70
+                            : Colors.black54,
                       ),
                     ),
                   ),
@@ -400,7 +607,6 @@ class _DashboardNeatCard extends StatelessWidget {
 }
 
 // ========== MODELS ==========
-
 class _NavItem {
   final String title;
   final IconData icon;
