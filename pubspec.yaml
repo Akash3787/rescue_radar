@@ -21,6 +21,9 @@ dependencies:
   path_provider: ^2.1.5  # For file paths
   open_file: ^3.5.10     # To open downloaded PDF
   permission_handler: ^11.3.1  # For storage permissions (Android)
+  open_file_plus: ^3.3.1
+
+
 
 
 

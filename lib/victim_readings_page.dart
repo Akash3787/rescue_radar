@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
+import 'dart:developer' as developer;
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:open_file/open_file.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'models/victim_reading.dart';
 import 'services/api_service.dart';
@@ -39,6 +41,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
       await _futureReadings;
       if (mounted) setState(() {});
     } catch (e) {
+      developer.log('Load error: $e');
       if (mounted) setState(() => _error = e.toString());
     }
   }
@@ -55,110 +58,104 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   }
 
   Future<void> _useHosted() async {
+    developer.log('🔄 Switching to hosted backend...');
     setState(() {
       _usingHosted = true;
       _error = null;
     });
+
     try {
       final hosted = ApiService.forHosted();
       _apiService = hosted;
+      developer.log('✅ ApiService switched to hosted');
+
+      try {
+        final hosted = await Future<ApiService>.sync(() {
+          return ApiService.forHosted();
+        });
+        _apiService = hosted;
+        developer.log('✅ ApiService switched to hosted');
+      } catch (e, st) {
+        developer.log('❌ ApiService.forHosted() threw: $e\n$st');
+        if (mounted) {
+          setState(() {
+            _error = 'Error creating hosted ApiService: $e';
+            _usingHosted = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("❌ Hosted init failed: $e")),
+          );
+        }
+        return;
+      }
+
       try {
         await ApiService.setCustomBase('https://web-production-87279.up.railway.app');
-      } catch (e) {
-        debugPrint('setCustomBase missing or failed: $e');
+        developer.log('✅ Custom base URL set');
+      } catch (e, st) {
+        developer.log('⚠️ setCustomBase failed (OK if method missing): $e\n$st');
       }
+
       await _load();
+      developer.log('🔥 Hosted loaded OK!');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✅ Switched to hosted backend!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e, st) {
-      debugPrint('useHosted error: $e\n$st');
+      developer.log('❌ useHosted ERROR: $e\n$st');
       if (mounted) {
         setState(() {
-          _error = 'Failed to switch to hosted backend: $e';
+          _error = 'Hosted backend failed: $e';
           _usingHosted = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("❌ Hosted failed: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
 
+  // ✅ CORRECTED: Browser-based PDF download (exactly like Chrome copy-paste)
   Future<void> _downloadPdf() async {
-    if (_isDownloading) return;
-
-    setState(() => _isDownloading = true);
+    const pdfUrl = "https://web-production-87279.up.railway.app/api/v1/readings/export/pdf";
 
     try {
-      // Show loading
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Downloading PDF to Downloads folder...")),
+      final uri = Uri.parse(pdfUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,  // Opens in external browser (Chrome/Safari)
         );
-      }
-
-      final pdfUrl = await _apiService.pdfExportUrl();
-      debugPrint('PDF URL: $pdfUrl'); // Check if URL is valid
-
-      // Request permissions (macOS doesn't need this)
-      if (Platform.isAndroid) {
-        final status = await Permission.storage.request();
-        if (!status.isGranted) {
-          throw Exception("Storage permission denied");
-        }
-      }
-
-      // Get save directory
-      Directory dir;
-      if (Platform.isAndroid) {
-        dir = Directory('/storage/emulated/0/Download');
-        if (!await dir.exists()) {
-          dir = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("📥 Opening in browser to download PDF..."),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       } else {
-        dir = await getApplicationDocumentsDirectory();
+        throw Exception('Could not launch $pdfUrl');
       }
-
-      // Create filename
-      final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final fileName = 'victim_readings_$timestamp.pdf';
-      final filePath = '${dir.path}/$fileName';
-
-      // Download file
-      final dio = Dio();
-      await dio.download(
-        pdfUrl,
-        filePath,
-        onReceiveProgress: (received, total) {
-          if (total != -1) {
-            debugPrint('Download: ${(received / total * 100).toStringAsFixed(0)}%');
-          }
-        },
-      );
-
-      // Success!
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("✅ PDF saved!\n$fileName\nLocation: ${dir.path}"),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'OPEN',
-              onPressed: () => OpenFile.open(filePath),
-            ),
-          ),
-        );
-      }
-
     } catch (e) {
-      debugPrint('Download error: $e');
+      developer.log('❌ Browser launch ERROR: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("❌ Download failed: $e"),
+            content: Text("❌ Failed to open browser: $e"),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
@@ -176,7 +173,6 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
     }
   }
 
-  // Keep all your existing _buildErrorCard, _metricCard, _buildList methods EXACTLY the same
   Widget _buildErrorCard() {
     return Center(
       child: Padding(
@@ -244,9 +240,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
               const SizedBox(height: 8),
               Text(label, style: TextStyle(fontSize: 14, color: color)),
               const SizedBox(height: 6),
-              Text(value,
-                  style: TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+              Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
             ],
           ),
         ),
@@ -256,7 +250,9 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
 
   Widget _buildList(List<VictimReading> readings) {
     final total = readings.length;
-    final avgDist = total == 0 ? 0 : (readings.map((e) => e.distanceCm).reduce((a, b) => a + b) / total);
+    final avgDist = total == 0
+        ? 0
+        : (readings.map((e) => e.distanceCm).reduce((a, b) => a + b) / total);
     final gpsCount = readings.where((r) => r.latitude != null).length;
     final gpsPct = total == 0 ? 0 : ((gpsCount / total) * 100).round();
 
@@ -293,7 +289,8 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: r.victimId));
                   ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Copied victim ID")));
+                    const SnackBar(content: Text("Copied victim ID")),
+                  );
                 },
               ),
             ),
