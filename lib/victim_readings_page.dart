@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'models/victim_reading.dart';
 import 'services/api_service.dart';
@@ -22,13 +23,15 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   late ApiService _apiService;
   late Future<List<VictimReading>> _futureReadings;
   String? _error;
-  bool _usingHosted = false;
+  bool _usingHosted = true; // always hosted now
   bool _isDownloading = false;
+
+  bool get _supportsPathProvider => !(kIsWeb || (Platform.isMacOS));
 
   @override
   void initState() {
     super.initState();
-    _apiService = ApiService();
+    _apiService = ApiService.forHosted();
     _load();
   }
 
@@ -39,135 +42,106 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
     });
     try {
       await _futureReadings;
-      if (mounted) setState(() {});
     } catch (e) {
       developer.log('Load error: $e');
       if (mounted) setState(() => _error = e.toString());
     }
   }
 
-  Future<void> _retryDiscovery() async {
-    setState(() => _error = null);
-    try {
-      await ApiService.clearCache();
-      _apiService = ApiService();
-      await _load();
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    }
-  }
-
   Future<void> _useHosted() async {
-    developer.log('🔄 Switching to hosted backend...');
+    // No switching needed, already hosted
+    // But method kept for compatibility if logic changes
+    developer.log('🔄 Using hosted backend (default)');
     setState(() {
       _usingHosted = true;
       _error = null;
+      _futureReadings = _apiService.fetchAllReadings();
     });
+  }
 
-    try {
-      final hosted = ApiService.forHosted();
-      _apiService = hosted;
-      developer.log('✅ ApiService switched to hosted');
+  Future<void> _downloadPdf() async {
+    const pdfUrl = "https://web-production-87279.up.railway.app/api/v1/readings/export/pdf";
+    const apiKey = "secret"; // ideally get from config or secure storage
 
-      try {
-        final hosted = await Future<ApiService>.sync(() {
-          return ApiService.forHosted();
-        });
-        _apiService = hosted;
-        developer.log('✅ ApiService switched to hosted');
-      } catch (e, st) {
-        developer.log('❌ ApiService.forHosted() threw: $e\n$st');
+    if (!_supportsPathProvider) {
+      // Fallback for Web/macOS: open PDF URL in browser (no headers, so public access only)
+      final uri = Uri.parse(pdfUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
         if (mounted) {
-          setState(() {
-            _error = 'Error creating hosted ApiService: $e';
-            _usingHosted = false;
-          });
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("❌ Hosted init failed: $e")),
+            const SnackBar(content: Text("📥 Opening PDF in browser..."), backgroundColor: Colors.green),
           );
         }
-        return;
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("❌ Could not launch browser"), backgroundColor: Colors.red),
+          );
+        }
+      }
+      return;
+    }
+
+    setState(() => _isDownloading = true);
+    try {
+      if (Platform.isAndroid) {
+        final status = await Permission.storage.request();
+        if (!status.isGranted) {
+          throw Exception("Storage permission denied");
+        }
       }
 
-      try {
-        await ApiService.setCustomBase('https://web-production-87279.up.railway.app');
-        developer.log('✅ Custom base URL set');
-      } catch (e, st) {
-        developer.log('⚠️ setCustomBase failed (OK if method missing): $e\n$st');
-      }
+      final dir = await getApplicationDocumentsDirectory();
+      final filePath =
+          "${dir.path}/victim_readings_${DateTime.now().millisecondsSinceEpoch}.pdf";
 
-      await _load();
-      developer.log('🔥 Hosted loaded OK!');
+      final dio = Dio();
+      final resp = await dio.get<List<int>>(
+        pdfUrl,
+        options: Options(
+          responseType: ResponseType.bytes,
+          headers: {
+            "x-api-key": apiKey,
+          },
+        ),
+      );
+
+      final file = File(filePath);
+      await file.writeAsBytes(resp.data!, flush: true);
+
+      await OpenFile.open(file.path);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("✅ Switched to hosted backend!"),
+            content: Text("✅ PDF downloaded and opened"),
             backgroundColor: Colors.green,
           ),
         );
       }
-    } catch (e, st) {
-      developer.log('❌ useHosted ERROR: $e\n$st');
-      if (mounted) {
-        setState(() {
-          _error = 'Hosted backend failed: $e';
-          _usingHosted = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("❌ Hosted failed: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  // ✅ CORRECTED: Browser-based PDF download (exactly like Chrome copy-paste)
-  Future<void> _downloadPdf() async {
-    const pdfUrl = "https://web-production-87279.up.railway.app/api/v1/readings/export/pdf";
-
-    try {
-      final uri = Uri.parse(pdfUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(
-          uri,
-          mode: LaunchMode.externalApplication,  // Opens in external browser (Chrome/Safari)
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("📥 Opening in browser to download PDF..."),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } else {
-        throw Exception('Could not launch $pdfUrl');
-      }
     } catch (e) {
-      developer.log('❌ Browser launch ERROR: $e');
+      developer.log('❌ PDF download ERROR: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("❌ Failed to open browser: $e"),
+            content: Text("❌ PDF failed: $e"),
             backgroundColor: Colors.red,
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
   Future<void> _refresh() async {
     try {
-      await _apiService.forceProbe();
-      if (mounted) {
-        setState(() {
-          _futureReadings = _apiService.fetchAllReadings();
-          _error = null;
-        });
-      }
+      setState(() {
+        _futureReadings = _apiService.fetchAllReadings();
+        _error = null;
+      });
+      await _futureReadings;
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
@@ -183,43 +157,21 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
             const Icon(Icons.cloud_off, size: 64, color: Colors.orange),
             const SizedBox(height: 12),
             const Text(
-              'Could not discover backend on local network',
+              'Could not load data from backend',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              _error ?? 'Try retrying or switch to hosted backend.',
+              _error ?? 'Try reloading the page.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              children: [
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry Discovery'),
-                  onPressed: _retryDiscovery,
-                ),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.cloud),
-                  label: const Text('Use Hosted'),
-                  onPressed: _useHosted,
-                ),
-              ],
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reload'),
+              onPressed: _load,
             ),
-            const SizedBox(height: 8),
-            TextButton(
-              child: const Text("Clear discovery cache"),
-              onPressed: () async {
-                await ApiService.clearCache();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Cache cleared")),
-                  );
-                }
-              },
-            )
           ],
         ),
       ),
@@ -302,11 +254,11 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = _usingHosted ? "Data Logging (Hosted)" : "Data Logging";
+    const title = "Data Logging (Hosted)";
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
+        title: const Text(title),
         actions: [
           IconButton(
             icon: _isDownloading
