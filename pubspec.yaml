@@ -22,7 +22,6 @@ dependencies:
   open_file: ^3.5.10     # To open downloaded PDF
   permission_handler: ^11.3.1  # For storage permissions (Android)
   open_file_plus: ^3.3.1
-  latlong2:
 
 
 
