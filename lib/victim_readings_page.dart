@@ -49,14 +49,13 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
   }
 
   Future<void> _useHosted() async {
-    // No switching needed, already hosted
-    // But method kept for compatibility if logic changes
     developer.log('🔄 Using hosted backend (default)');
     setState(() {
       _usingHosted = true;
       _error = null;
-      _futureReadings = _apiService.fetchAllReadings();
     });
+    // Reload data explicitly after switching
+    await _load();
   }
 
   Future<void> _downloadPdf() async {
@@ -64,7 +63,6 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
     const apiKey = "secret"; // ideally get from config or secure storage
 
     if (!_supportsPathProvider) {
-      // Fallback for Web/macOS: open PDF URL in browser (no headers, so public access only)
       final uri = Uri.parse(pdfUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -202,6 +200,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
 
   Widget _buildList(List<VictimReading> readings) {
     final total = readings.length;
+    final uniqueVictimCount = readings.map((r) => r.victimId).toSet().length;
     final avgDist = total == 0
         ? 0
         : (readings.map((e) => e.distanceCm).reduce((a, b) => a + b) / total);
@@ -215,7 +214,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage> {
         children: [
           Row(
             children: [
-              _metricCard("Victims", "$total", Icons.person, Colors.blue),
+              _metricCard("Victims", "$uniqueVictimCount", Icons.person, Colors.blue),
               const SizedBox(width: 10),
               _metricCard("Avg Dist (cm)", avgDist.toStringAsFixed(1), Icons.straighten, Colors.green),
               const SizedBox(width: 10),
