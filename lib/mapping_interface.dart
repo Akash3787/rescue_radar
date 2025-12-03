@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'dart:async';
+import 'dart:io';
+import 'package:url_launcher/url_launcher.dart';
 
-import 'main.dart';
+import 'models/victim_reading.dart';
+import 'services/api_service.dart';
 
 class MappingInterface extends StatefulWidget {
   const MappingInterface({super.key});
@@ -12,22 +16,16 @@ class MappingInterface extends StatefulWidget {
 
 class _MappingInterfaceState extends State<MappingInterface> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-
-  final List<DetectionPoint> humanPoints = [
-    DetectionPoint(angle: pi / 3, distance: 0.6, label: "H1", color: const Color(0xFFE53935)),
-    DetectionPoint(angle: 5 * pi / 4, distance: 0.5, label: "H2", color: const Color(0xFFE53935)),
-    DetectionPoint(angle: 1.7, distance: 0.75, label: "H3", color: const Color(0xFFE53935)),
-  ];
-  final List<DetectionPoint> noisePoints = [
-    DetectionPoint(angle: 0.5, distance: 0.5, label: "2mm", color: const Color(0xFFFF9100)),
-    DetectionPoint(angle: 3.0, distance: 0.6, label: "9-4", color: const Color(0xFFFF9100)),
-    DetectionPoint(angle: 5.8, distance: 0.7, label: "#1A1D23", color: const Color(0xFFFF9100)),
-  ];
-  final List<DetectionPoint> debrisPoints = [
-    DetectionPoint(angle: 1.0, distance: 0.3, label: "5-1", color: const Color(0xFF616161)),
-    DetectionPoint(angle: 2.4, distance: 0.65, label: "7-6", color: const Color(0xFF616161)),
-    DetectionPoint(angle: 3.7, distance: 0.5, label: "3-0", color: const Color(0xFF616161)),
-  ];
+  late ApiService _apiService;
+  
+  List<DetectionPoint> humanPoints = [];
+  List<DetectionPoint> noisePoints = [];
+  List<DetectionPoint> debrisPoints = [];
+  
+  List<VictimReading> _victimReadings = [];
+  bool _isLoading = false;
+  DateTime? _lastUpdate;
+  Timer? _autoRefreshTimer;
 
   bool autoRefresh = true;
   bool showGrid = true;
@@ -37,17 +35,110 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
   @override
   void initState() {
     super.initState();
+    _apiService = ApiService.forHosted();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 30), // 2 RPM sweep => 30s per rotation
     )..repeat();
+    _loadVictimData();
+    _startAutoRefresh();
   }
 
   @override
   void dispose() {
     _controller.dispose();
     clearPointsController.dispose();
+    _autoRefreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    if (autoRefresh) {
+      _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        _loadVictimData();
+      });
+    }
+  }
+
+  Future<void> _loadVictimData() async {
+    if (_isLoading) return;
+    
+    setState(() {
+      _isLoading = true;
+  });
+
+    try {
+      final readings = await _apiService.fetchAllReadings();
+      _convertReadingsToDetectionPoints(readings);
+      setState(() {
+        _victimReadings = readings;
+        _lastUpdate = DateTime.now();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error loading data: $e")),
+        );
+      }
+    }
+  }
+
+  void _convertReadingsToDetectionPoints(List<VictimReading> readings) {
+    // Separate victims with GPS and without GPS
+    final victimsWithGPS = readings.where((r) => r.latitude != null && r.longitude != null).toList();
+    final victimsWithoutGPS = readings.where((r) => r.latitude == null || r.longitude == null).toList();
+
+    // Convert victims with GPS to detection points
+    humanPoints = [];
+    for (int i = 0; i < victimsWithGPS.length; i++) {
+      final victim = victimsWithGPS[i];
+      // Use distanceCm to determine radar distance (normalize: max 500cm = 1.0)
+      final normalizedDistance = (victim.distanceCm / 500.0).clamp(0.1, 1.0);
+      // Distribute angles evenly around the circle, or use a hash of victim ID
+      final angle = (i * 2 * pi / (victimsWithGPS.isNotEmpty ? victimsWithGPS.length : 1)) + 
+                    (victim.victimId.hashCode % 100) / 100.0;
+      humanPoints.add(DetectionPoint(
+        angle: angle,
+        distance: normalizedDistance,
+        label: victim.victimId.length > 4 ? victim.victimId.substring(0, 4) : victim.victimId,
+        color: const Color(0xFFE53935),
+        victimReading: victim, // Store reference to open in maps
+      ));
+    }
+
+    // Convert victims without GPS (treat as noise/debris for now)
+    noisePoints = [];
+    debrisPoints = [];
+    
+    // You can add logic here to categorize based on distance or other factors
+    for (int i = 0; i < victimsWithoutGPS.length; i++) {
+      final victim = victimsWithoutGPS[i];
+      final normalizedDistance = (victim.distanceCm / 500.0).clamp(0.1, 1.0);
+      final angle = (i * 2 * pi / (victimsWithoutGPS.isNotEmpty ? victimsWithoutGPS.length : 1)) + 
+                    (victim.victimId.hashCode % 100) / 100.0;
+      
+      // Categorize based on distance (closer = debris, farther = noise)
+      if (victim.distanceCm < 200) {
+        debrisPoints.add(DetectionPoint(
+          angle: angle,
+          distance: normalizedDistance,
+          label: victim.victimId.length > 4 ? victim.victimId.substring(0, 4) : victim.victimId,
+          color: const Color(0xFF616161),
+        ));
+      } else {
+        noisePoints.add(DetectionPoint(
+          angle: angle,
+          distance: normalizedDistance,
+          label: victim.victimId.length > 4 ? victim.victimId.substring(0, 4) : victim.victimId,
+          color: const Color(0xFFFF9100),
+        ));
+      }
+    }
   }
 
   @override
@@ -125,8 +216,12 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
                                 const SizedBox(height: 16),
                                 _infoText("Range: 5 meters"),
                                 _infoText("Sweep Rate: 2 RPM"),
-                                _infoText("Detected Targets: 3"),
-                                _infoText("Last Update: 2s ago"),
+                                _infoText("Detected Targets: ${humanPoints.length + noisePoints.length + debrisPoints.length}"),
+                                _infoText("Humans: ${humanPoints.length}"),
+                                _infoText("With GPS: ${_victimReadings.where((r) => r.latitude != null && r.longitude != null).length}"),
+                                _infoText(_lastUpdate != null 
+                                  ? "Last Update: ${_formatTimeAgo(_lastUpdate!)}"
+                                  : "Last Update: Never"),
                               ],
                             ),
                           ),
@@ -139,22 +234,27 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
                 // Central Radar Display
                 Expanded(
                   child: Center(
-                    child: SizedBox(
+                      child: SizedBox(
                       width: 650,
                       height: 650,
-                      child: AnimatedBuilder(
-                        animation: _controller,
-                        builder: (context, _) {
-                          return CustomPaint(
-                            painter: RadarPainter(
-                              sweepAngle: _controller.value * 2 * pi,
-                              humanDetections: humanPoints,
-                              noiseDetections: noisePoints,
-                              debrisDetections: debrisPoints,
-                              showGrid: showGrid,
-                            ),
-                          );
+                      child: GestureDetector(
+                        onTapDown: (details) {
+                          _handleRadarTap(details.localPosition, Size(650, 650));
                         },
+                        child: AnimatedBuilder(
+                          animation: _controller,
+                          builder: (context, _) {
+                            return CustomPaint(
+                              painter: RadarPainter(
+                                sweepAngle: _controller.value * 2 * pi,
+                                humanDetections: humanPoints,
+                                noiseDetections: noisePoints,
+                                debrisDetections: debrisPoints,
+                                showGrid: showGrid,
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),
@@ -177,10 +277,17 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
                           Align(
                             alignment: Alignment.topRight,
                             child: ElevatedButton.icon(
-                              onPressed: () {
-                                // Refresh action placeholder
-                              },
-                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              onPressed: _isLoading ? null : () => _loadVictimData(),
+                              icon: _isLoading 
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : const Icon(Icons.refresh, color: Colors.white),
                               label: const Text(
                                 "Refresh Map",
                                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
@@ -221,6 +328,7 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
                           const SizedBox(height: 40),
                           _buildSwitch("Auto Refresh", autoRefresh, activeGreen, (v) {
                             setState(() => autoRefresh = v);
+                            _startAutoRefresh();
                           }),
                           _buildSwitch("Show Grid", showGrid, activeGreen, (v) {
                             setState(() => showGrid = v);
@@ -312,6 +420,124 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
       ],
     );
   }
+
+  String _formatTimeAgo(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+    if (difference.inSeconds < 60) {
+      return '${difference.inSeconds}s ago';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return '${difference.inHours}h ago';
+    }
+  }
+
+  void _handleRadarTap(Offset localPosition, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    
+    // Calculate distance and angle from center
+    final dx = localPosition.dx - center.dx;
+    final dy = localPosition.dy - center.dy;
+    
+    // Find closest detection point
+    DetectionPoint? closestPoint;
+    double minDistance = double.infinity;
+    
+    for (var point in [...humanPoints, ...noisePoints, ...debrisPoints]) {
+      final pointDx = cos(point.angle) * point.distance * radius;
+      final pointDy = sin(point.angle) * point.distance * radius;
+      final pointDistance = sqrt((dx - pointDx) * (dx - pointDx) + (dy - pointDy) * (dy - pointDy));
+      
+      if (pointDistance < minDistance && pointDistance < 30) { // 30 pixel threshold
+        minDistance = pointDistance;
+        closestPoint = point;
+      }
+    }
+    
+    if (closestPoint != null && closestPoint.victimReading != null) {
+      _showVictimInfo(closestPoint.victimReading!);
+    }
+  }
+
+  Future<void> _showVictimInfo(VictimReading victim) async {
+    if (victim.latitude == null || victim.longitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("No GPS coordinates available for this victim"),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Victim: ${victim.victimId}"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Distance: ${victim.distanceCm.toStringAsFixed(1)} cm"),
+            Text("Latitude: ${victim.latitude!.toStringAsFixed(6)}"),
+            Text("Longitude: ${victim.longitude!.toStringAsFixed(6)}"),
+            Text("Time: ${victim.timestamp.toString()}"),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _openInGoogleMaps(victim);
+            },
+            icon: const Icon(Icons.map),
+            label: const Text("Open in Maps"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openInGoogleMaps(VictimReading victim) async {
+    if (victim.latitude == null || victim.longitude == null) return;
+
+    final lat = victim.latitude!;
+    final lon = victim.longitude!;
+    final urlString = 'https://www.google.com/maps?q=$lat,$lon';
+    final url = Uri.parse(urlString);
+
+    try {
+      if (Platform.isMacOS) {
+        final result = await Process.run('open', [urlString]);
+        if (result.exitCode == 0 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("🗺️ Opening location in Google Maps...")),
+          );
+        }
+      } else {
+        if (await canLaunchUrl(url)) {
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("🗺️ Opening location in Google Maps...")),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to open maps: $e")),
+        );
+      }
+    }
+  }
 }
 
 class DetectionPoint {
@@ -319,12 +545,14 @@ class DetectionPoint {
   final double distance; // 0-1 normalized
   final String label;
   final Color color;
+  final VictimReading? victimReading; // Optional reference to victim data
 
   DetectionPoint({
     required this.angle,
     required this.distance,
     required this.label,
     required this.color,
+    this.victimReading,
   });
 }
 
@@ -468,6 +696,14 @@ class RadarPainter extends CustomPainter {
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10)
           ..style = PaintingStyle.fill;
         canvas.drawCircle(pos, pulseRadius, pulsePaint);
+      }
+
+      // Show GPS indicator if victim has coordinates
+      if (pt.victimReading != null && pt.victimReading!.latitude != null) {
+        final gpsPaint = Paint()
+          ..color = Colors.green
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(pos + const Offset(8, -8), 4, gpsPaint);
       }
 
       final textPainter = TextPainter(
