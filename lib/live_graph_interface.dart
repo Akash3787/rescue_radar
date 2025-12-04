@@ -4,26 +4,141 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import 'main.dart'; // for ThemeController
+import 'services/api_service.dart';
 
 class LiveGraphInterface extends StatefulWidget {
-  const LiveGraphInterface({super.key});
+  final String? victimId; // Optional: if provided, show graph for specific victim
+  
+  const LiveGraphInterface({super.key, this.victimId});
 
   @override
   State<LiveGraphInterface> createState() => _LiveGraphInterfaceState();
 }
 
 class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
-  final int windowSeconds = 60;
+  final int windowSeconds = 300; // 5 minutes window for victim-specific data
   final double maxDepth = 10.0;
 
   List<_Sample> distanceHistory = [];
-  double currentDistance = 4.2;
-  String status = 'Stable';
+  double currentDistance = 0.0;
+  String status = 'Loading...';
+  bool _isLoading = false;
+  String? _error;
+  Timer? _autoRefreshTimer;
+  late ApiService _apiService;
 
   @override
   void initState() {
     super.initState();
-    _generateSampleData();
+    _apiService = ApiService.forHosted();
+    if (widget.victimId != null) {
+      _loadVictimData();
+      _startAutoRefresh();
+    } else {
+      _generateSampleData();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  String _calculateDistanceChange() {
+    if (distanceHistory.length < 2) return 'N/A';
+    final first = distanceHistory.first.distance;
+    final last = distanceHistory.last.distance;
+    final change = last - first;
+    final changePercent = first > 0 ? (change / first * 100).abs() : 0.0;
+    
+    if (change.abs() < 0.01) {
+      return 'Stable (${change.abs().toStringAsFixed(3)}m)';
+    } else if (change > 0) {
+      return '↑ Deeper by ${change.toStringAsFixed(2)}m (${changePercent.toStringAsFixed(1)}%)';
+    } else {
+      return '↓ Closer by ${change.abs().toStringAsFixed(2)}m (${changePercent.toStringAsFixed(1)}%)';
+    }
+  }
+
+  Color _getChangeColor() {
+    if (distanceHistory.length < 2) return Colors.grey;
+    final first = distanceHistory.first.distance;
+    final last = distanceHistory.last.distance;
+    final change = last - first;
+    
+    if (change.abs() < 0.01) {
+      return Colors.green;
+    } else if (change > 0) {
+      return Colors.red; // Getting deeper (worse)
+    } else {
+      return Colors.green; // Getting closer (better)
+    }
+  }
+
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (widget.victimId != null) {
+        _loadVictimData();
+      }
+    });
+  }
+
+  Future<void> _loadVictimData() async {
+    if (_isLoading || widget.victimId == null) return;
+    
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final readings = await _apiService.fetchReadingsForVictim(widget.victimId!);
+      
+      if (readings.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          status = 'No data available for ${widget.victimId}';
+          distanceHistory = [];
+        });
+        return;
+      }
+
+      // Convert readings to samples
+      distanceHistory = readings.map((r) {
+        final timestampSeconds = r.timestamp.millisecondsSinceEpoch / 1000.0;
+        // Convert cm to meters
+        final distanceMeters = r.distanceCm / 100.0;
+        return _Sample(timestampSeconds, distanceMeters.clamp(0.0, maxDepth));
+      }).toList();
+
+      // Sort by timestamp
+      distanceHistory.sort((a, b) => a.t.compareTo(b.t));
+
+      if (distanceHistory.isNotEmpty) {
+        currentDistance = distanceHistory.last.distance;
+        final latestReading = readings.last;
+        final timeAgo = DateTime.now().difference(latestReading.timestamp);
+        if (timeAgo.inSeconds < 60) {
+          status = 'Active - ${timeAgo.inSeconds}s ago';
+        } else if (timeAgo.inMinutes < 60) {
+          status = 'Active - ${timeAgo.inMinutes}m ago';
+        } else {
+          status = 'Last seen ${timeAgo.inHours}h ago';
+        }
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _error = e.toString();
+        status = 'Error loading data';
+      });
+    }
   }
 
   void _generateSampleData() {
@@ -34,7 +149,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 
     // Generate 60 seconds of earthquake aftershock data
     for (int i = 0; i < 30; i++) {
-      final t = now - (windowSeconds - i * 2);
+      final t = now - (60 - i * 2);
       double distance = 4.2;
 
       // Simulate aftershocks and rubble shifts
@@ -60,21 +175,28 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     final hintTextColor = isDarkMode ? Colors.white54 : Colors.black45;
 
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final displaySamples =
-    distanceHistory.where((s) => s.t >= now - windowSeconds).toList();
+    final displaySamples = widget.victimId != null
+      ? distanceHistory // Show all readings for victim-specific view
+      : distanceHistory.where((s) => s.t >= now - 60).toList(); // 60s window for demo mode
 
     return Scaffold(
       // Use theme background so light mode is softer
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(
-          'Distance vs Time',
+          widget.victimId != null 
+            ? 'Victim: ${widget.victimId} - Distance vs Time'
+            : 'Distance vs Time',
           style: TextStyle(color: baseTextColor),
         ),
         backgroundColor: isDarkMode
             ? const Color(0xFF151922)
             : Theme.of(context).colorScheme.inversePrimary,
         foregroundColor: baseTextColor,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: baseTextColor),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         actions: [
           // Theme toggle (same as dashboard)
           Switch(
@@ -84,8 +206,17 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
             },
           ),
           IconButton(
-            icon: Icon(Icons.refresh, color: baseTextColor),
-            onPressed: _generateSampleData,
+            icon: _isLoading 
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(baseTextColor),
+                  ),
+                )
+              : Icon(Icons.refresh, color: baseTextColor),
+            onPressed: widget.victimId != null ? _loadVictimData : _generateSampleData,
           ),
         ],
       ),
@@ -106,7 +237,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
               child: Column(
                 children: [
                   Text(
-                    'Current: ${currentDistance.toStringAsFixed(1)}m',
+                    'Current: ${currentDistance.toStringAsFixed(2)}m (${(currentDistance * 100).toStringAsFixed(1)} cm)',
                     style: TextStyle(
                       color: baseTextColor,
                       fontSize: 24,
@@ -121,9 +252,23 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
                     ),
                   ),
                   Text(
-                    '60 second monitoring window',
+                    widget.victimId != null
+                      ? '${distanceHistory.length} readings | ${windowSeconds ~/ 60} minute window'
+                      : '60 second monitoring window',
                     style: TextStyle(color: hintTextColor),
                   ),
+                  if (widget.victimId != null && distanceHistory.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Distance change: ${_calculateDistanceChange()}',
+                        style: TextStyle(
+                          color: _getChangeColor(),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -146,7 +291,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
                 child: CustomPaint(
                   painter: SimpleDistanceTimePainter(
                     displaySamples,
-                    windowSeconds,
+                    widget.victimId != null ? 300 : 60,
                   ),
                 ),
               ),
@@ -154,11 +299,26 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 
             const SizedBox(height: 12),
 
+            if (_error != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Error: $_error',
+                  style: TextStyle(color: Colors.red.shade900),
+                ),
+              ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '← Older        Time → NOW',
+                  widget.victimId != null
+                    ? '← Older        Time → Latest'
+                    : '← Older        Time → NOW',
                   style: TextStyle(
                     color: secondaryTextColor,
                     fontSize: 14,
@@ -212,7 +372,12 @@ class SimpleDistanceTimePainter extends CustomPainter {
     );
 
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final windowStart = now - windowSeconds;
+    final windowStart = samples.isNotEmpty && samples.first.t < now - windowSeconds
+      ? samples.first.t
+      : now - windowSeconds;
+    final actualWindow = samples.isNotEmpty 
+      ? (samples.last.t - windowStart).clamp(1.0, windowSeconds.toDouble())
+      : windowSeconds.toDouble();
 
     // Grid
     final gridPaint = Paint()
@@ -261,9 +426,12 @@ class SimpleDistanceTimePainter extends CustomPainter {
 
     // Time labels
     for (int i = 0; i <= 5; i++) {
-      final sec = (windowSeconds * i / 5).round();
+      final sec = (actualWindow * i / 5).round();
+      final timeText = actualWindow > 60 
+        ? '${(sec / 60).toStringAsFixed(1)}m'
+        : '$sec s';
       tp.text = TextSpan(
-        text: '$sec s',
+        text: timeText,
         style: const TextStyle(color: Colors.white60, fontSize: 12),
       );
       tp.layout();
@@ -281,7 +449,7 @@ class SimpleDistanceTimePainter extends CustomPainter {
       if (sample.t < windowStart) continue;
 
       final xNorm =
-      ((sample.t - windowStart) / windowSeconds).clamp(0.0, 1.0);
+      ((sample.t - windowStart) / actualWindow).clamp(0.0, 1.0);
       final x = leftPadding + xNorm * plotWidth;
 
       final yNorm = (sample.distance / 10.0).clamp(0.0, 1.0);
@@ -314,16 +482,24 @@ class SimpleDistanceTimePainter extends CustomPainter {
     if (samples.isNotEmpty) {
       final last = samples.last;
       final xNorm =
-      ((last.t - windowStart) / windowSeconds).clamp(0.0, 1.0);
+      ((last.t - windowStart) / actualWindow).clamp(0.0, 1.0);
       final x = leftPadding + xNorm * plotWidth;
       final yNorm = (last.distance / 10.0).clamp(0.0, 1.0);
       final y = topPadding + plotHeight - (yNorm * plotHeight);
 
       final dotPaint = Paint()..color = Colors.white;
       canvas.drawCircle(Offset(x, y), 6, dotPaint);
+      
+      // Draw a pulsing ring for latest point
+      final pulsePaint = Paint()
+        ..color = Colors.indigoAccent.withOpacity(0.3)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawCircle(Offset(x, y), 10, pulsePaint);
     }
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
+

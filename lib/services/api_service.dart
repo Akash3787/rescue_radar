@@ -45,6 +45,13 @@ class ApiService {
     return readingsJson.map((e) => VictimReading.fromJson(e)).toList();
   }
 
+  Future<List<VictimReading>> fetchReadingsForVictim(String victimId) async {
+    // Fetch all readings and filter by victim ID
+    final allReadings = await fetchAllReadings();
+    return allReadings.where((r) => r.victimId == victimId).toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp)); // Sort by timestamp
+  }
+
   Future<VictimReading> fetchLatest(String victimId) async {
     final url = '$_hostedBase/api/v1/victims/$victimId/latest';
     final body = await _getWithFallback(url);

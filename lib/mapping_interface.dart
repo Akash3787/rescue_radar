@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'models/victim_reading.dart';
 import 'services/api_service.dart';
+import 'live_graph_interface.dart';
 
 class MappingInterface extends StatefulWidget {
   const MappingInterface({super.key});
@@ -491,13 +492,31 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
             onPressed: () => Navigator.pop(context),
             child: const Text("Close"),
           ),
+          if (victim.latitude != null && victim.longitude != null)
+            ElevatedButton.icon(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _openInGoogleMaps(victim);
+              },
+              icon: const Icon(Icons.map),
+              label: const Text("Maps"),
+            ),
           ElevatedButton.icon(
-            onPressed: () async {
+            onPressed: () {
               Navigator.pop(context);
-              await _openInGoogleMaps(victim);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LiveGraphInterface(victimId: victim.victimId),
+                ),
+              );
             },
-            icon: const Icon(Icons.map),
-            label: const Text("Open in Maps"),
+            icon: const Icon(Icons.show_chart),
+            label: const Text("Live Graph"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.indigo,
+              foregroundColor: Colors.white,
+            ),
           ),
         ],
       ),
