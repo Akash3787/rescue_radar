@@ -133,39 +133,39 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                       ),
                       const Spacer(),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          maxWidth: 420,
-                          minWidth: 120,
-                        ),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: TextField(
-                            style: TextStyle(
-                              color:
-                              isDarkMode ? Colors.white : Colors.black87,
-                            ),
-                            decoration: InputDecoration(
-                              filled: true,
-                              fillColor: isDarkMode
-                                  ? const Color(0xFF1C212C)
-                                  : const Color(0xFFF0F2F5),
-                              prefixIcon: Icon(
-                                Icons.search,
-                                color: isDarkMode
-                                    ? Colors.white54
-                                    : Colors.black38,
-                              ),
-                              hintText: 'Search...',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide.none,
-                              ),
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                      ),
+                      // ConstrainedBox(
+                      //   constraints: const BoxConstraints(
+                      //     maxWidth: 420,
+                      //     minWidth: 120,
+                      //   ),
+                      //   child: SizedBox(
+                      //     width: double.infinity,
+                      //     child: TextField(
+                      //       style: TextStyle(
+                      //         color:
+                      //         isDarkMode ? Colors.white : Colors.black87,
+                      //       ),
+                      //       decoration: InputDecoration(
+                      //         filled: true,
+                      //         fillColor: isDarkMode
+                      //             ? const Color(0xFF1C212C)
+                      //             : const Color(0xFFF0F2F5),
+                      //         prefixIcon: Icon(
+                      //           Icons.search,
+                      //           color: isDarkMode
+                      //               ? Colors.white54
+                      //               : Colors.black38,
+                      //         ),
+                      //         hintText: 'Search...',
+                      //         border: OutlineInputBorder(
+                      //           borderRadius: BorderRadius.circular(8),
+                      //           borderSide: BorderSide.none,
+                      //         ),
+                      //         isDense: true,
+                      //       ),
+                      //     ),
+                      //   ),
+                      // ),
                       const SizedBox(width: 12),
                       Switch(
                         value:

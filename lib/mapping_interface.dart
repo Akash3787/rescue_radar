@@ -618,27 +618,31 @@ class RadarPainter extends CustomPainter {
 
   void _drawGrid(Canvas canvas, Offset center, double radius) {
     _circlePaint.color = Colors.lightBlue.withOpacity(0.3);
-    for (int i = 1; i <= 5; i++) {
-      canvas.drawCircle(center, radius * i / 5, _circlePaint);
+
+    // Draw 7 circles for 1m through 7m
+    for (int i = 1; i <= 7; i++) {
+      canvas.drawCircle(center, radius * i / 7, _circlePaint);
     }
 
-    for (int i = 0; i < 12; i++) { // every 30 degrees
+    // Draw radial lines every 30 degrees (optional)
+    for (int i = 0; i < 12; i++) {
       double angle = i * pi / 6;
       final end = Offset(center.dx + radius * cos(angle), center.dy + radius * sin(angle));
       canvas.drawLine(center, end, _gridLinePaint);
     }
 
+    // Draw distance labels outside the circles for each meter
     final textStyle = TextStyle(color: Colors.lightBlue.withOpacity(0.5), fontSize: 12);
-    final labels = ['2m', '3m', '5m'];
-    final values = [radius * 0.4, radius * 0.6, radius];
     final tp = TextPainter(textAlign: TextAlign.center, textDirection: TextDirection.ltr);
 
-    for (int i = 0; i < labels.length; i++) {
-      tp.text = TextSpan(text: labels[i], style: textStyle);
+    for (int i = 1; i <= 7; i++) {
+      tp.text = TextSpan(text: '${i}m', style: textStyle);
       tp.layout();
-      tp.paint(canvas, Offset(center.dx + values[i] - tp.width / 2, center.dy + 4));
+      // Draw label centered horizontally, just below the circle boundary near bottom center.
+      tp.paint(canvas, Offset(center.dx + radius * i / 7 - tp.width / 2, center.dy + 4));
     }
   }
+
 
   void _drawCrosshairs(Canvas canvas, Size size, Offset center) {
     final crosshairPaint = Paint()

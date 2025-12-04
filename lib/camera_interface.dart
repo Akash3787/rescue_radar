@@ -2,9 +2,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'services/api_service.dart';
 
 /// Camera interface for endoscopy camera connected to Railway backend
 class CameraInterface extends StatefulWidget {
@@ -24,7 +28,9 @@ class _CameraInterfaceState extends State<CameraInterface> {
   Uint8List? _lastSnapshot;
   Timer? _pollTimer;
   bool _loadingSnap = false;
+  bool _reportingVictim = false;
   Duration _pollInterval = const Duration(milliseconds: 200); // Faster polling for smoother feed
+  late ApiService _apiService;
 
   String get _mjpegUrl => '$_backendBase/stream';
   String get _snapUrl => '$_backendBase/snap';
@@ -32,6 +38,7 @@ class _CameraInterfaceState extends State<CameraInterface> {
   @override
   void initState() {
     super.initState();
+    _apiService = ApiService.forHosted();
     _checkCameraStatus();
   }
 
@@ -137,6 +144,148 @@ class _CameraInterfaceState extends State<CameraInterface> {
     }
   }
 
+  /// Report victim detection from camera
+  Future<void> _reportVictimDetection() async {
+    // Show dialog to get distance
+    final distanceController = TextEditingController();
+    final victimIdController = TextEditingController(
+      text: 'cam-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Report Victim Detection'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: victimIdController,
+                decoration: const InputDecoration(
+                  labelText: 'Victim ID',
+                  hintText: 'Auto-generated',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: distanceController,
+                decoration: const InputDecoration(
+                  labelText: 'Distance (cm)',
+                  hintText: 'e.g., 250',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'GPS location will be captured automatically',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (distanceController.text.isNotEmpty) {
+                Navigator.pop(context, true);
+              }
+            },
+            child: const Text('Report'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final distanceText = distanceController.text.trim();
+    if (distanceText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('❌ Please enter distance')),
+      );
+      return;
+    }
+
+    final distance = double.tryParse(distanceText);
+    if (distance == null || distance <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('❌ Invalid distance value')),
+      );
+      return;
+    }
+
+    setState(() => _reportingVictim = true);
+
+    try {
+      // Get GPS location
+      double? latitude;
+      double? longitude;
+
+      try {
+        // Request location permission
+        final locationPermission = await Permission.location.request();
+        if (locationPermission.isGranted) {
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+          latitude = position.latitude;
+          longitude = position.longitude;
+        }
+      } catch (e) {
+        // GPS failed, but continue without it
+        developer.log('GPS error: $e');
+      }
+
+      // Send to backend
+      final response = await _apiService.postReading({
+        'victim_id': victimIdController.text.trim(),
+        'distance_cm': distance,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      });
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '✅ Victim reported: ${victimIdController.text}\n'
+                'Distance: ${distance.toStringAsFixed(1)} cm'
+                '${latitude != null && longitude != null ? '\nGPS: ${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}' : '\n⚠️ No GPS'}',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } else {
+        throw Exception('Server returned ${response.statusCode}');
+      }
+    } catch (e) {
+      developer.log('❌ Report victim error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to report victim: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _reportingVictim = false);
+      }
+    }
+  }
+
   /// Called when Image.network (MJPEG) fails — switch to polling fallback
   void _onMjpegError(Object? err) {
     if (!mounted) return;
@@ -200,6 +349,25 @@ class _CameraInterfaceState extends State<CameraInterface> {
             onPressed: _snapNow,
             icon: const Icon(Icons.camera_alt),
             label: const Text('Snap'),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: _reportingVictim ? null : _reportVictimDetection,
+            icon: _reportingVictim 
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : const Icon(Icons.person_add),
+            label: const Text('Report Victim'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
           ),
           const SizedBox(width: 8),
           IconButton(

@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'models/victim_reading.dart';
 import 'services/api_service.dart';
+import 'live_graph_interface.dart';
 
 class VictimReadingsPage extends StatefulWidget {
   const VictimReadingsPage({super.key});
@@ -72,6 +73,18 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
     setState(() {
       _isDarkMode = !_isDarkMode;
     });
+  }
+
+  String _formatTimeAgo(Duration duration) {
+    if (duration.inDays > 0) {
+      return "${duration.inDays}d ago";
+    } else if (duration.inHours > 0) {
+      return "${duration.inHours}h ago";
+    } else if (duration.inMinutes > 0) {
+      return "${duration.inMinutes}m ago";
+    } else {
+      return "${duration.inSeconds}s ago";
+    }
   }
 
   Future<void> _downloadPdf() async {
@@ -261,7 +274,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
   }
 
   void _copyVictimInfo(VictimReading victim) {
-    final formattedTimestamp = victim.timestamp?.toString() ?? "N/A";
+    final formattedTimestamp = victim.timestamp.toString();
     final lat = victim.latitude?.toStringAsFixed(6) ?? "N/A";
     final lon = victim.longitude?.toStringAsFixed(6) ?? "N/A";
 
@@ -401,21 +414,24 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              time.length > 20 ? "${time.substring(0, 17)}..." : time,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white : Colors.black87,
+            Flexible(  // ← ADD THIS WRAPPER
+              child: Text(
+                time,  // ← SHOW FULL TIME - NO TRUNCATION
+                style: TextStyle(
+                  fontSize: 14,  // ← SLIGHTLY SMALLER FONT
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+                maxLines: 3,  // ← ALLOW MORE LINES
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
       ),
     );
   }
+
 
   DataCell _buildTextCell(String text, bool isDark) {
     return DataCell(
@@ -516,6 +532,38 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
               onPressed: () => onCopy(victim),
               tooltip: "Copy victim details",
             ),
+            const SizedBox(width: 8),
+            // Graph button
+            // IconButton(
+            //   icon: Container(
+            //     padding: const EdgeInsets.all(8),
+            //     decoration: BoxDecoration(
+            //       gradient: LinearGradient(
+            //         colors: isDark
+            //             ? [Colors.indigo.shade700, Colors.purple.shade600]
+            //             : [Colors.indigo.shade500, Colors.purple.shade400],
+            //       ),
+            //       shape: BoxShape.circle,
+            //       boxShadow: [
+            //         BoxShadow(
+            //           color: (isDark ? Colors.black45 : Colors.black26).withOpacity(0.4),
+            //           blurRadius: 12,
+            //           offset: const Offset(0, 6),
+            //         ),
+            //       ],
+            //     ),
+            //     child: const Icon(Icons.show_chart, size: 20, color: Colors.white),
+            //   ),
+            //   onPressed: () {
+            //     Navigator.push(
+            //       context,
+            //       MaterialPageRoute(
+            //         builder: (context) => LiveGraphInterface(victimId: victim.victimId),
+            //       ),
+            //     );
+            //   },
+            //   tooltip: "View Live Graph",
+            // ),
             const SizedBox(width: 8),
             // Map button
             IconButton(
@@ -644,14 +692,52 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
   }
 
   Widget _buildList(List<VictimReading> readings) {
+    final now = DateTime.now();
     final total = readings.length;
-    final avgDist = total == 0
-        ? 0.0
-        : (readings.map((e) => e.distanceCm).reduce((a, b) => a + b) / total);
-    final gpsCount = readings.where((r) => r.latitude != null).length;
-    final gpsPct = total == 0 ? 0 : ((gpsCount / total) * 100).round();
-
-    final headerColor = _isDarkMode ? Colors.blue.shade900 : Colors.blue.shade700;
+    
+    // Calculate metrics
+    final recent24h = readings.where((r) => 
+      now.difference(r.timestamp).inHours < 24
+    ).length;
+    
+    final recent1h = readings.where((r) => 
+      now.difference(r.timestamp).inMinutes < 60
+    ).length;
+    
+    final uniqueVictims = readings.map((r) => r.victimId).toSet().length;
+    
+    final latestReading = readings.isNotEmpty 
+      ? readings.reduce((a, b) => a.timestamp.isAfter(b.timestamp) ? a : b)
+      : null;
+    
+    final timeSinceLast = latestReading != null
+      ? _formatTimeAgo(now.difference(latestReading.timestamp))
+      : "Never";
+    
+    // Distance trend (comparing last 10% vs first 10%)
+    String distanceTrend = "N/A";
+    Color trendColor = Colors.grey;
+    if (readings.length >= 10) {
+      final sorted = List<VictimReading>.from(readings)
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      final recent = sorted.sublist((sorted.length * 0.9).round());
+      final older = sorted.sublist(0, (sorted.length * 0.1).round());
+      
+      final recentAvg = recent.map((r) => r.distanceCm).reduce((a, b) => a + b) / recent.length;
+      final olderAvg = older.map((r) => r.distanceCm).reduce((a, b) => a + b) / older.length;
+      final change = recentAvg - olderAvg;
+      
+      if (change.abs() < 5) {
+        distanceTrend = "Stable";
+        trendColor = Colors.green;
+      } else if (change > 0) {
+        distanceTrend = "↑ Increasing";
+        trendColor = Colors.red;
+      } else {
+        distanceTrend = "↓ Decreasing";
+        trendColor = Colors.blue;
+      }
+    }
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -661,16 +747,17 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
         physics: const AlwaysScrollableScrollPhysics(),
         child: Column(
           children: [
-            // Metrics Row
+            // Enhanced Metrics Row
             Padding(
               padding: const EdgeInsets.all(20),
-              child: Row(
+              child: Column(
                 children: [
-                  _metricCard("Victims", "$total", Icons.person, Colors.blue),
-                  const SizedBox(width: 16),
-                  _metricCard("Avg Dist (cm)", avgDist.toStringAsFixed(1), Icons.straighten, Colors.green),
-                  const SizedBox(width: 16),
-                  _metricCard("GPS %", "$gpsPct%", Icons.location_on, Colors.orange),
+                  // First row
+                  Row(
+                    children: [
+                      _metricCard("Total Victims", "$total", Icons.people, Colors.blue),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -749,7 +836,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
                       return DataRow(
                         color: WidgetStateProperty.all(rowBg),
                         cells: [
-                          _buildTimeCell(r.timestamp?.toString() ?? "N/A", _isDarkMode),
+                          _buildTimeCell(r.timestamp.toString(), _isDarkMode),
                           _buildTextCell(r.victimId, _isDarkMode),
                           _buildDistanceCell(r.distanceCm.toStringAsFixed(1), _isDarkMode),
                           _buildCoordCell(r.latitude?.toStringAsFixed(4) ?? "N/A", _isDarkMode),

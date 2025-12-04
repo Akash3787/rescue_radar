@@ -35,7 +35,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
       _loadVictimData();
       _startAutoRefresh();
     } else {
-      _generateSampleData();
+      _loadMostRecentVictimData();
     }
   }
 
@@ -141,6 +141,62 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     }
   }
 
+  Future<void> _loadMostRecentVictimData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      status = 'Loading most recent victim data...';
+    });
+
+    try {
+      final allReadings = await _apiService.fetchAllReadings();
+      
+      if (allReadings.isEmpty) {
+        _generateSampleData();
+        return;
+      }
+
+      // Find the most recently detected victim
+      final mostRecent = allReadings.reduce((a, b) => 
+        a.timestamp.isAfter(b.timestamp) ? a : b
+      );
+
+      // Load all readings for this victim
+      final victimReadings = await _apiService.fetchReadingsForVictim(mostRecent.victimId);
+      
+      if (victimReadings.isEmpty) {
+        _generateSampleData();
+        return;
+      }
+
+      // Convert to samples
+      distanceHistory = victimReadings.map((r) {
+        final timestampSeconds = r.timestamp.millisecondsSinceEpoch / 1000.0;
+        final distanceMeters = r.distanceCm / 100.0;
+        return _Sample(timestampSeconds, distanceMeters.clamp(0.0, maxDepth));
+      }).toList();
+
+      distanceHistory.sort((a, b) => a.t.compareTo(b.t));
+
+      if (distanceHistory.isNotEmpty) {
+        currentDistance = distanceHistory.last.distance;
+        status = 'Showing: ${mostRecent.victimId} (Most Recent)';
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _error = e.toString();
+        status = 'Error loading data';
+      });
+      // Fallback to sample data
+      _generateSampleData();
+    }
+  }
+
   void _generateSampleData() {
     distanceHistory.clear();
 
@@ -162,7 +218,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     }
 
     currentDistance = distanceHistory.last.distance;
-    status = 'Monitoring complete';
+    status = 'Demo Mode - Sample Data';
     setState(() {});
   }
 
