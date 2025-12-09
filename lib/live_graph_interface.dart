@@ -1,4 +1,4 @@
-// lib/live_graph_interface.dart - SIMPLE Distance vs Time Graph
+// lib/live_graph_interface.dart - REAL-TIME SCROLLING Distance vs Time Graph (CM)
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -8,7 +8,7 @@ import 'services/api_service.dart';
 
 class LiveGraphInterface extends StatefulWidget {
   final String? victimId; // Optional: if provided, show graph for specific victim
-  
+
   const LiveGraphInterface({super.key, this.victimId});
 
   @override
@@ -16,33 +16,108 @@ class LiveGraphInterface extends StatefulWidget {
 }
 
 class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
-  final int windowSeconds = 300; // 5 minutes window for victim-specific data
-  final double maxDepth = 10.0;
+  // Real-time scrolling parameters
+  final int displayWindowSeconds = 60; // Show last 60 seconds on screen
+  final double maxDepth = 1000.0; // 10m = 1000cm
 
   List<_Sample> distanceHistory = [];
   double currentDistance = 0.0;
-  String status = 'Loading...';
+  String status = 'Waiting for data...';
   bool _isLoading = false;
   String? _error;
   Timer? _autoRefreshTimer;
+  Timer? _simulationTimer; // For demo/real-time simulation
   late ApiService _apiService;
+  late DateTime _sessionStartTime; // When user opened this page
 
   @override
   void initState() {
     super.initState();
     _apiService = ApiService.forHosted();
+    _sessionStartTime = DateTime.now();
+
     if (widget.victimId != null) {
       _loadVictimData();
       _startAutoRefresh();
     } else {
-      _loadMostRecentVictimData();
+      // Demo mode: start with sample data and simulate live updates
+      _generateInitialSampleData();
+      _startLiveSimulation();
     }
   }
 
   @override
   void dispose() {
     _autoRefreshTimer?.cancel();
+    _simulationTimer?.cancel();
     super.dispose();
+  }
+
+  // Start continuous data updates (for real sensor data)
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (widget.victimId != null && mounted) {
+        _loadVictimData();
+      }
+    });
+  }
+
+  // Simulate live data for demo mode (like a real sensor streaming)
+  void _startLiveSimulation() {
+    _simulationTimer?.cancel();
+    _simulationTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) {
+        _addSimulatedData();
+      }
+    });
+  }
+
+  void _addSimulatedData() {
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final Random rnd = Random();
+
+    // Simulate realistic sensor data with some variation (in cm)
+    double distance = currentDistance;
+
+    // Random walk (small changes)
+    distance += (rnd.nextDouble() - 0.5) * 15.0;
+
+    // Occasional larger movements (heartbeat pulses or rubble shifts)
+    if (rnd.nextDouble() < 0.1) {
+      distance += (rnd.nextDouble() - 0.5) * 40.0;
+    }
+
+    distance = distance.clamp(50.0, maxDepth);
+
+    setState(() {
+      distanceHistory.add(_Sample(now, distance));
+      currentDistance = distance;
+
+      // Update status with elapsed time
+      final elapsed = DateTime.now().difference(_sessionStartTime);
+      if (elapsed.inSeconds < 60) {
+        status = '🔴 LIVE - ${elapsed.inSeconds}s elapsed';
+      } else {
+        status = '🔴 LIVE - ${elapsed.inMinutes}m ${elapsed.inSeconds % 60}s elapsed';
+      }
+    });
+  }
+
+  void _generateInitialSampleData() {
+    distanceHistory.clear();
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final Random rnd = Random(42);
+
+    // Generate initial 10 seconds of data (in cm)
+    for (int i = 0; i < 20; i++) {
+      final t = now - (10 - i * 0.5);
+      double distance = 420.0 + (rnd.nextDouble() - 0.5) * 30.0;
+      distanceHistory.add(_Sample(t, distance.clamp(50.0, maxDepth)));
+    }
+
+    currentDistance = distanceHistory.last.distance;
+    status = '🔴 LIVE - Demo Mode';
   }
 
   String _calculateDistanceChange() {
@@ -51,13 +126,13 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     final last = distanceHistory.last.distance;
     final change = last - first;
     final changePercent = first > 0 ? (change / first * 100).abs() : 0.0;
-    
-    if (change.abs() < 0.01) {
-      return 'Stable (${change.abs().toStringAsFixed(3)}m)';
+
+    if (change.abs() < 1.0) {
+      return 'Stable (${change.abs().toStringAsFixed(1)}cm)';
     } else if (change > 0) {
-      return '↑ Deeper by ${change.toStringAsFixed(2)}m (${changePercent.toStringAsFixed(1)}%)';
+      return '↓ Deeper by ${change.toStringAsFixed(0)}cm (${changePercent.toStringAsFixed(1)}%)';
     } else {
-      return '↓ Closer by ${change.abs().toStringAsFixed(2)}m (${changePercent.toStringAsFixed(1)}%)';
+      return '↑ Closer by ${change.abs().toStringAsFixed(0)}cm (${changePercent.toStringAsFixed(1)}%)';
     }
   }
 
@@ -66,8 +141,8 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     final first = distanceHistory.first.distance;
     final last = distanceHistory.last.distance;
     final change = last - first;
-    
-    if (change.abs() < 0.01) {
+
+    if (change.abs() < 1.0) {
       return Colors.green;
     } else if (change > 0) {
       return Colors.red; // Getting deeper (worse)
@@ -76,18 +151,9 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     }
   }
 
-  void _startAutoRefresh() {
-    _autoRefreshTimer?.cancel();
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (widget.victimId != null) {
-        _loadVictimData();
-      }
-    });
-  }
-
   Future<void> _loadVictimData() async {
     if (_isLoading || widget.victimId == null) return;
-    
+
     setState(() {
       _isLoading = true;
       _error = null;
@@ -95,22 +161,21 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 
     try {
       final readings = await _apiService.fetchReadingsForVictim(widget.victimId!);
-      
+
       if (readings.isEmpty) {
         setState(() {
           _isLoading = false;
-          status = 'No data available for ${widget.victimId}';
+          status = 'No data for ${widget.victimId}';
           distanceHistory = [];
         });
         return;
       }
 
-      // Convert readings to samples
+      // Convert readings to samples (distance already in cm from API)
       distanceHistory = readings.map((r) {
         final timestampSeconds = r.timestamp.millisecondsSinceEpoch / 1000.0;
-        // Convert cm to meters
-        final distanceMeters = r.distanceCm / 100.0;
-        return _Sample(timestampSeconds, distanceMeters.clamp(0.0, maxDepth));
+        final distanceCm = r.distanceCm.clamp(0.0, maxDepth);
+        return _Sample(timestampSeconds, distanceCm);
       }).toList();
 
       // Sort by timestamp
@@ -118,14 +183,11 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 
       if (distanceHistory.isNotEmpty) {
         currentDistance = distanceHistory.last.distance;
-        final latestReading = readings.last;
-        final timeAgo = DateTime.now().difference(latestReading.timestamp);
-        if (timeAgo.inSeconds < 60) {
-          status = 'Active - ${timeAgo.inSeconds}s ago';
-        } else if (timeAgo.inMinutes < 60) {
-          status = 'Active - ${timeAgo.inMinutes}m ago';
+        final elapsed = DateTime.now().difference(_sessionStartTime);
+        if (elapsed.inSeconds < 60) {
+          status = '🔴 LIVE - ${elapsed.inSeconds}s | ${distanceHistory.length} readings';
         } else {
-          status = 'Last seen ${timeAgo.inHours}h ago';
+          status = '🔴 LIVE - ${elapsed.inMinutes}m | ${distanceHistory.length} readings';
         }
       }
 
@@ -141,87 +203,6 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     }
   }
 
-  Future<void> _loadMostRecentVictimData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      status = 'Loading most recent victim data...';
-    });
-
-    try {
-      final allReadings = await _apiService.fetchAllReadings();
-      
-      if (allReadings.isEmpty) {
-        _generateSampleData();
-        return;
-      }
-
-      // Find the most recently detected victim
-      final mostRecent = allReadings.reduce((a, b) => 
-        a.timestamp.isAfter(b.timestamp) ? a : b
-      );
-
-      // Load all readings for this victim
-      final victimReadings = await _apiService.fetchReadingsForVictim(mostRecent.victimId);
-      
-      if (victimReadings.isEmpty) {
-        _generateSampleData();
-        return;
-      }
-
-      // Convert to samples
-      distanceHistory = victimReadings.map((r) {
-        final timestampSeconds = r.timestamp.millisecondsSinceEpoch / 1000.0;
-        final distanceMeters = r.distanceCm / 100.0;
-        return _Sample(timestampSeconds, distanceMeters.clamp(0.0, maxDepth));
-      }).toList();
-
-      distanceHistory.sort((a, b) => a.t.compareTo(b.t));
-
-      if (distanceHistory.isNotEmpty) {
-        currentDistance = distanceHistory.last.distance;
-        status = 'Showing: ${mostRecent.victimId} (Most Recent)';
-      }
-
-      setState(() {
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _error = e.toString();
-        status = 'Error loading data';
-      });
-      // Fallback to sample data
-      _generateSampleData();
-    }
-  }
-
-  void _generateSampleData() {
-    distanceHistory.clear();
-
-    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final Random rnd = Random(42); // Fixed seed for demo
-
-    // Generate 60 seconds of earthquake aftershock data
-    for (int i = 0; i < 30; i++) {
-      final t = now - (60 - i * 2);
-      double distance = 4.2;
-
-      // Simulate aftershocks and rubble shifts
-      if (i == 8) distance += 1.2; // Aftershock #1 - falls deeper
-      if (i == 15) distance -= 0.8; // Rubble shift - closer
-      if (i == 22) distance += 0.6; // Aftershock #2 - deeper again
-
-      distance += (rnd.nextDouble() - 0.5) * 0.3; // Breathing noise
-      distanceHistory.add(_Sample(t, distance.clamp(0.5, maxDepth)));
-    }
-
-    currentDistance = distanceHistory.last.distance;
-    status = 'Demo Mode - Sample Data';
-    setState(() {});
-  }
-
   @override
   Widget build(BuildContext context) {
     final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -230,19 +211,13 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     final secondaryTextColor = isDarkMode ? Colors.white70 : Colors.black54;
     final hintTextColor = isDarkMode ? Colors.white54 : Colors.black45;
 
-    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final displaySamples = widget.victimId != null
-      ? distanceHistory // Show all readings for victim-specific view
-      : distanceHistory.where((s) => s.t >= now - 60).toList(); // 60s window for demo mode
-
     return Scaffold(
-      // Use theme background so light mode is softer
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(
-          widget.victimId != null 
-            ? 'Victim: ${widget.victimId} - Distance vs Time'
-            : 'Distance vs Time',
+          widget.victimId != null
+              ? 'Live: ${widget.victimId} - Distance vs Time'
+              : 'Live Distance vs Time',
           style: TextStyle(color: baseTextColor),
         ),
         backgroundColor: isDarkMode
@@ -254,7 +229,6 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
-          // Theme toggle (same as dashboard)
           Switch(
             value: ThemeController.of(context)?.isDark ?? false,
             onChanged: (value) {
@@ -262,17 +236,17 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
             },
           ),
           IconButton(
-            icon: _isLoading 
-              ? SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(baseTextColor),
-                  ),
-                )
-              : Icon(Icons.refresh, color: baseTextColor),
-            onPressed: widget.victimId != null ? _loadVictimData : _generateSampleData,
+            icon: _isLoading
+                ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(baseTextColor),
+              ),
+            )
+                : Icon(Icons.refresh, color: baseTextColor),
+            onPressed: widget.victimId != null ? _loadVictimData : null,
           ),
         ],
       ),
@@ -280,7 +254,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // Simple Status
+            // Status Display
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -289,38 +263,42 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
                     ? Colors.grey[900]
                     : Theme.of(context).colorScheme.surface,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.red.withAlpha(100),
+                  width: 1.5,
+                ),
               ),
               child: Column(
                 children: [
                   Text(
-                    'Current: ${currentDistance.toStringAsFixed(2)}m (${(currentDistance * 100).toStringAsFixed(1)} cm)',
+                    'Distance: ${currentDistance.toStringAsFixed(0)}cm',
                     style: TextStyle(
                       color: baseTextColor,
-                      fontSize: 24,
+                      fontSize: 28,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   Text(
                     status,
                     style: TextStyle(
-                      color: secondaryTextColor,
-                      fontSize: 16,
+                      color: Colors.red[400],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
+                  const SizedBox(height: 8),
                   Text(
-                    widget.victimId != null
-                      ? '${distanceHistory.length} readings | ${windowSeconds ~/ 60} minute window'
-                      : '60 second monitoring window',
-                    style: TextStyle(color: hintTextColor),
+                    'Data points: ${distanceHistory.length} | Window: ${displayWindowSeconds}s',
+                    style: TextStyle(color: hintTextColor, fontSize: 12),
                   ),
-                  if (widget.victimId != null && distanceHistory.length > 1)
+                  if (distanceHistory.length > 1)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        'Distance change: ${_calculateDistanceChange()}',
+                        'Change: ${_calculateDistanceChange()}',
                         style: TextStyle(
                           color: _getChangeColor(),
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -331,7 +309,7 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 
             const SizedBox(height: 16),
 
-            // Graph
+            // Real-time Graph
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -341,13 +319,16 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
                       : Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                      color: Colors.indigoAccent.withOpacity(0.8), width: 2),
+                    color: Colors.indigoAccent.withOpacity(0.8),
+                    width: 2,
+                  ),
                 ),
                 padding: const EdgeInsets.all(20),
                 child: CustomPaint(
-                  painter: SimpleDistanceTimePainter(
-                    displaySamples,
-                    widget.victimId != null ? 300 : 60,
+                  painter: RealtimeGraphPainter(
+                    distanceHistory,
+                    displayWindowSeconds,
+                    maxDepth,
                   ),
                 ),
               ),
@@ -368,23 +349,23 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
                   style: TextStyle(color: Colors.red.shade900),
                 ),
               ),
+
+            // Axis Labels
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  widget.victimId != null
-                    ? '← Older        Time → Latest'
-                    : '← Older        Time → NOW',
+                  '← Older data     Current time →',
                   style: TextStyle(
                     color: secondaryTextColor,
-                    fontSize: 14,
+                    fontSize: 13,
                   ),
                 ),
                 Text(
-                  '↑ Distance (meters)',
+                  '↑ Distance (cm)',
                   style: TextStyle(
                     color: secondaryTextColor,
-                    fontSize: 14,
+                    fontSize: 13,
                   ),
                 ),
               ],
@@ -397,27 +378,28 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 }
 
 class _Sample {
-  final double t;
-  final double distance;
+  final double t; // timestamp in seconds since epoch
+  final double distance; // distance in cm
   _Sample(this.t, this.distance);
 }
 
-class SimpleDistanceTimePainter extends CustomPainter {
+class RealtimeGraphPainter extends CustomPainter {
   final List<_Sample> samples;
-  final int windowSeconds;
+  final int displayWindowSeconds;
+  final double maxDepth;
 
-  SimpleDistanceTimePainter(this.samples, this.windowSeconds);
+  RealtimeGraphPainter(this.samples, this.displayWindowSeconds, this.maxDepth);
 
   @override
   void paint(Canvas canvas, Size size) {
     final leftPadding = 50.0;
-    final rightPadding = 50.0;
+    final rightPadding = 30.0;
     final topPadding = 30.0;
     final bottomPadding = 50.0;
     final plotWidth = size.width - leftPadding - rightPadding;
     final plotHeight = size.height - topPadding - bottomPadding;
 
-    // Background of plot area (keep dark for contrast with neon line)
+    // Background of plot area
     final bgPaint = Paint()..color = Colors.black87;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -427,88 +409,147 @@ class SimpleDistanceTimePainter extends CustomPainter {
       bgPaint,
     );
 
-    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final windowStart = samples.isNotEmpty && samples.first.t < now - windowSeconds
-      ? samples.first.t
-      : now - windowSeconds;
-    final actualWindow = samples.isNotEmpty 
-      ? (samples.last.t - windowStart).clamp(1.0, windowSeconds.toDouble())
-      : windowSeconds.toDouble();
+    if (samples.isEmpty) {
+      _drawEmptyGraph(canvas, size, leftPadding, topPadding, plotWidth, plotHeight, rightPadding, bottomPadding);
+      return;
+    }
 
-    // Grid
+    // Get current time and calculate display window
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final windowStart = now - displayWindowSeconds; // Start of visible window
+
+    // Grid lines
+    _drawGrid(canvas, leftPadding, topPadding, plotWidth, plotHeight, size, displayWindowSeconds);
+
+    // Y-axis labels (distance in cm)
+    _drawYAxisLabels(canvas, leftPadding, topPadding, plotHeight);
+
+    // X-axis labels (time)
+    _drawXAxisLabels(canvas, leftPadding, topPadding, plotWidth, size, displayWindowSeconds);
+
+    // Draw distance line
+    _drawDistanceLine(canvas, samples, leftPadding, topPadding, plotWidth, plotHeight, windowStart, now);
+
+    // Draw current point indicator
+    if (samples.isNotEmpty) {
+      final lastSample = samples.last;
+      final xNorm = ((lastSample.t - windowStart) / displayWindowSeconds).clamp(0.0, 1.0);
+      final x = leftPadding + xNorm * plotWidth;
+
+      final yNorm = (lastSample.distance / maxDepth).clamp(0.0, 1.0);
+      final y = topPadding + plotHeight - (yNorm * plotHeight);
+
+      // Pulsing current point
+      final dotPaint = Paint()..color = Colors.white;
+      canvas.drawCircle(Offset(x, y), 7, dotPaint);
+
+      final pulsePaint = Paint()
+        ..color = Colors.indigoAccent.withOpacity(0.4)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawCircle(Offset(x, y), 12, pulsePaint);
+    }
+  }
+
+  void _drawEmptyGraph(Canvas canvas, Size size, double leftPadding, double topPadding,
+      double plotWidth, double plotHeight, double rightPadding, double bottomPadding) {
+    final tp = TextPainter(textDirection: TextDirection.ltr);
+    tp.text = const TextSpan(
+      text: 'Waiting for data...',
+      style: TextStyle(color: Colors.white54, fontSize: 16),
+    );
+    tp.layout();
+    tp.paint(
+      canvas,
+      Offset(
+        (size.width - tp.width) / 2,
+        (size.height - tp.height) / 2,
+      ),
+    );
+  }
+
+  void _drawGrid(Canvas canvas, double leftPadding, double topPadding, double plotWidth,
+      double plotHeight, Size size, int windowSeconds) {
     final gridPaint = Paint()
       ..color = Colors.white.withOpacity(0.15)
       ..strokeWidth = 1;
 
-    // Depth grid lines (0–10 m)
+    // Horizontal grid lines (distance in cm)
     for (int i = 0; i <= 5; i++) {
       final y = topPadding + (i / 5.0) * plotHeight;
       canvas.drawLine(
         Offset(leftPadding, y),
-        Offset(size.width - rightPadding, y),
+        Offset(size.width - 30, y),
         gridPaint,
       );
     }
 
-    // Time grid
+    // Vertical grid lines (time)
     for (int i = 0; i <= 5; i++) {
       final x = leftPadding + (i / 5.0) * plotWidth;
       canvas.drawLine(
         Offset(x, topPadding),
-        Offset(x, size.height - bottomPadding),
+        Offset(x, size.height - 50),
         gridPaint,
       );
     }
+  }
 
+  void _drawYAxisLabels(Canvas canvas, double leftPadding, double topPadding, double plotHeight) {
     final tp = TextPainter(textDirection: TextDirection.ltr);
+    const labels = ['0cm', '200cm', '400cm', '600cm', '800cm', '1000cm'];
 
-    // Y labels
-    const labels = ['0m', '2m', '4m', '6m', '8m', '10m'];
     for (int i = 0; i < labels.length; i++) {
-      tp.text = const TextSpan(
-        text: '',
-      );
       tp.text = TextSpan(
         text: labels[i],
         style: const TextStyle(color: Colors.white60, fontSize: 12),
       );
       tp.layout();
-      final y = topPadding +
-          plotHeight -
-          (i / 5.0) * plotHeight -
-          tp.height / 2;
+
+      final y = topPadding + plotHeight - (i / 5.0) * plotHeight - tp.height / 2;
       tp.paint(canvas, Offset(8, y));
     }
+  }
 
-    // Time labels
+  void _drawXAxisLabels(Canvas canvas, double leftPadding, double topPadding, double plotWidth,
+      Size size, int windowSeconds) {
+    final tp = TextPainter(textDirection: TextDirection.ltr);
+    final now = DateTime.now();
+
+    // Show time labels (5 divisions)
     for (int i = 0; i <= 5; i++) {
-      final sec = (actualWindow * i / 5).round();
-      final timeText = actualWindow > 60 
-        ? '${(sec / 60).toStringAsFixed(1)}m'
-        : '$sec s';
+      final secondsAgo = (windowSeconds * (5 - i) / 5).round();
+      final timePoint = now.subtract(Duration(seconds: secondsAgo));
+
+      final timeText = '${timePoint.hour.toString().padLeft(2, '0')}:${timePoint.minute.toString().padLeft(2, '0')}:${timePoint.second.toString().padLeft(2, '0')}';
+
       tp.text = TextSpan(
         text: timeText,
-        style: const TextStyle(color: Colors.white60, fontSize: 12),
+        style: const TextStyle(color: Colors.white60, fontSize: 11),
       );
       tp.layout();
+
       final x = leftPadding + (i / 5.0) * plotWidth - tp.width / 2;
       tp.paint(canvas, Offset(x, size.height - 35));
     }
+  }
 
-    if (samples.isEmpty) return;
+  void _drawDistanceLine(Canvas canvas, List<_Sample> samples, double leftPadding,
+      double topPadding, double plotWidth, double plotHeight, double windowStart, double now) {
 
-    // Distance line
     final path = Path();
     bool first = true;
 
+    // Only draw samples within the display window
     for (final sample in samples) {
+      // Skip samples outside the window
       if (sample.t < windowStart) continue;
 
-      final xNorm =
-      ((sample.t - windowStart) / actualWindow).clamp(0.0, 1.0);
+      // Calculate normalized position in the window
+      final xNorm = ((sample.t - windowStart) / displayWindowSeconds).clamp(0.0, 1.0);
       final x = leftPadding + xNorm * plotWidth;
 
-      final yNorm = (sample.distance / 10.0).clamp(0.0, 1.0);
+      final yNorm = (sample.distance / maxDepth).clamp(0.0, 1.0);
       final y = topPadding + plotHeight - (yNorm * plotHeight);
 
       if (first) {
@@ -519,43 +560,26 @@ class SimpleDistanceTimePainter extends CustomPainter {
       }
     }
 
-    // Line with glow
+    if (first) return; // No data to draw
+
+    // Draw glow effect
     final glowPaint = Paint()
       ..color = Colors.indigoAccent.withOpacity(0.5)
-      ..strokeWidth = 5
+      ..strokeWidth = 6
       ..style = PaintingStyle.stroke
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
     canvas.drawPath(path, glowPaint);
 
+    // Draw main line
     final linePaint = Paint()
       ..color = Colors.indigoAccent
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(path, linePaint);
-
-    // Current point
-    if (samples.isNotEmpty) {
-      final last = samples.last;
-      final xNorm =
-      ((last.t - windowStart) / actualWindow).clamp(0.0, 1.0);
-      final x = leftPadding + xNorm * plotWidth;
-      final yNorm = (last.distance / 10.0).clamp(0.0, 1.0);
-      final y = topPadding + plotHeight - (yNorm * plotHeight);
-
-      final dotPaint = Paint()..color = Colors.white;
-      canvas.drawCircle(Offset(x, y), 6, dotPaint);
-      
-      // Draw a pulsing ring for latest point
-      final pulsePaint = Paint()
-        ..color = Colors.indigoAccent.withOpacity(0.3)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-      canvas.drawCircle(Offset(x, y), 10, pulsePaint);
-    }
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
-
