@@ -3,6 +3,9 @@ class VictimReading {
   final int id;
   final String victimId;
   final double distanceCm;
+  final double? temperatureC;
+  final double? humidityPct;
+  final double? gasPpm;
   final double? latitude;
   final double? longitude;
   final DateTime timestamp;
@@ -11,6 +14,9 @@ class VictimReading {
     required this.id,
     required this.victimId,
     required this.distanceCm,
+    this.temperatureC,
+    this.humidityPct,
+    this.gasPpm,
     this.latitude,
     this.longitude,
     required this.timestamp,
@@ -79,6 +85,9 @@ class VictimReading {
       id: json['id'] is int ? json['id'] as int : int.parse(json['id'].toString()),
       victimId: json['victim_id'] ?? json['victimId'] ?? 'unknown',
       distanceCm: (json['distance_cm'] is num) ? (json['distance_cm'] as num).toDouble() : double.parse(json['distance_cm'].toString()),
+      temperatureC: json['temperature_c'] == null ? null : (json['temperature_c'] as num).toDouble(),
+      humidityPct: json['humidity_pct'] == null ? null : (json['humidity_pct'] as num).toDouble(),
+      gasPpm: json['gas_ppm'] == null ? null : (json['gas_ppm'] as num).toDouble(),
       latitude: json['latitude'] == null ? null : (json['latitude'] as num).toDouble(),
       longitude: json['longitude'] == null ? null : (json['longitude'] as num).toDouble(),
       timestamp: parsedTs,
@@ -89,6 +98,9 @@ class VictimReading {
     'id': id,
     'victim_id': victimId,
     'distance_cm': distanceCm,
+    'temperature_c': temperatureC,
+    'humidity_pct': humidityPct,
+    'gas_ppm': gasPpm,
     'latitude': latitude,
     'longitude': longitude,
     // keep ISO UTC with 'Z' suffix

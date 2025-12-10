@@ -38,12 +38,12 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
 
     if (widget.victimId != null) {
       _loadVictimData();
-      _startAutoRefresh();
     } else {
       // Demo mode: start with sample data and simulate live updates
       _generateInitialSampleData();
       _startLiveSimulation();
     }
+    _startAutoRefresh();
   }
 
   @override
@@ -59,6 +59,8 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     _autoRefreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (widget.victimId != null && mounted) {
         _loadVictimData();
+      } else {
+        _loadMostRecentVictimData();
       }
     });
   }

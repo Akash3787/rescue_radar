@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +15,15 @@ class ApiService {
   static String? _inMemoryBase;
   final String writeApiKey;
 
+  static bool get _prefsSupported {
+    if (kIsWeb) return false; // avoid legacy channel on web
+    try {
+      return Platform.isAndroid || Platform.isIOS;
+    } catch (_) {
+      return false;
+    }
+  }
+
   ApiService({this.writeApiKey = 'secret'}) {
     _inMemoryBase = _hostedBase;
   }
@@ -24,16 +34,24 @@ class ApiService {
 
   static Future<void> clearCache() async {
     _inMemoryBase = null;
-    if (kIsWeb) return; // skip for web
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_cacheKey);
+    if (!_prefsSupported) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_cacheKey);
+    } catch (_) {
+      // ignore prefs errors on desktop
+    }
   }
 
   static Future<void> setCustomBase(String base) async {
     _inMemoryBase = base;
-    if (kIsWeb) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_cacheKey, base);
+    if (!_prefsSupported) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey, base);
+    } catch (_) {
+      // ignore prefs errors on desktop
+    }
   }
 
   Future<List<VictimReading>> fetchAllReadings() async {
