@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 
 import 'dashboard_page.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+// void main() async {
+//   WidgetsFlutterBinding.ensureInitialized();
+//   runApp(const MyApp());
+// }
+void main() {
+  debugPrint('🔥 RESCUE RADAR BUILD #3 STARTED');
   runApp(const MyApp());
 }
 
@@ -49,6 +53,7 @@ class _MyAppState extends State<MyApp> {
           _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
         });
       },
+      //
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'RRRS Rescue Radar',

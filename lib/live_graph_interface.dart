@@ -57,7 +57,8 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
   void _startAutoRefresh() {
     _autoRefreshTimer?.cancel();
     _autoRefreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (widget.victimId != null && mounted) {
+      if (!mounted) return;
+      if (widget.victimId != null) {
         _loadVictimData();
       } else {
         _loadMostRecentVictimData();
@@ -96,12 +97,18 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
       distanceHistory.add(_Sample(now, distance));
       currentDistance = distance;
 
+      // Trim history to visible window
+      final cutoff = now - displayWindowSeconds;
+      distanceHistory =
+          distanceHistory.where((s) => s.t >= cutoff).toList(growable: true);
+
       // Update status with elapsed time
       final elapsed = DateTime.now().difference(_sessionStartTime);
       if (elapsed.inSeconds < 60) {
         status = '🔴 LIVE - ${elapsed.inSeconds}s elapsed';
       } else {
-        status = '🔴 LIVE - ${elapsed.inMinutes}m ${elapsed.inSeconds % 60}s elapsed';
+        status =
+        '🔴 LIVE - ${elapsed.inMinutes}m ${elapsed.inSeconds % 60}s elapsed';
       }
     });
   }
@@ -153,6 +160,54 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     }
   }
 
+  /// NEW: Poll backend for the *latest* reading (any victim),
+  /// append it as a live sample, and keep only the last N seconds.
+  Future<void> _loadMostRecentVictimData() async {
+    try {
+      final readings = await _apiService.fetchAllReadings();
+      if (readings.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          status = 'Waiting for data...';
+          // Keep existing history from simulation if any
+        });
+        return;
+      }
+
+      // Assume API returns newest first, but be safe and sort
+      readings.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      final latest = readings.last;
+
+      final nowSeconds = DateTime.now().millisecondsSinceEpoch / 1000.0;
+      final distanceCm = latest.distanceCm.clamp(0.0, maxDepth);
+
+      if (!mounted) return;
+      setState(() {
+        distanceHistory.add(_Sample(nowSeconds, distanceCm));
+        currentDistance = distanceCm;
+
+        // Keep only samples inside the visible window
+        final cutoff = nowSeconds - displayWindowSeconds;
+        distanceHistory =
+            distanceHistory.where((s) => s.t >= cutoff).toList(growable: true);
+
+        final elapsed = DateTime.now().difference(_sessionStartTime);
+        if (elapsed.inSeconds < 60) {
+          status = '🔴 LIVE - ${elapsed.inSeconds}s elapsed';
+        } else {
+          status =
+          '🔴 LIVE - ${elapsed.inMinutes}m ${elapsed.inSeconds % 60}s elapsed';
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // Don't spam status, just record error
+      setState(() {
+        _error = e.toString();
+      });
+    }
+  }
+
   Future<void> _loadVictimData() async {
     if (_isLoading || widget.victimId == null) return;
 
@@ -162,7 +217,8 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     });
 
     try {
-      final readings = await _apiService.fetchReadingsForVictim(widget.victimId!);
+      final readings =
+      await _apiService.fetchReadingsForVictim(widget.victimId!);
 
       if (readings.isEmpty) {
         setState(() {
@@ -183,13 +239,21 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
       // Sort by timestamp
       distanceHistory.sort((a, b) => a.t.compareTo(b.t));
 
+      // Trim to visible time window
+      final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+      final cutoff = now - displayWindowSeconds;
+      distanceHistory =
+          distanceHistory.where((s) => s.t >= cutoff).toList(growable: true);
+
       if (distanceHistory.isNotEmpty) {
         currentDistance = distanceHistory.last.distance;
         final elapsed = DateTime.now().difference(_sessionStartTime);
         if (elapsed.inSeconds < 60) {
-          status = '🔴 LIVE - ${elapsed.inSeconds}s | ${distanceHistory.length} readings';
+          status =
+          '🔴 LIVE - ${elapsed.inSeconds}s | ${distanceHistory.length} readings';
         } else {
-          status = '🔴 LIVE - ${elapsed.inMinutes}m | ${distanceHistory.length} readings';
+          status =
+          '🔴 LIVE - ${elapsed.inMinutes}m | ${distanceHistory.length} readings';
         }
       }
 
@@ -412,7 +476,8 @@ class RealtimeGraphPainter extends CustomPainter {
     );
 
     if (samples.isEmpty) {
-      _drawEmptyGraph(canvas, size, leftPadding, topPadding, plotWidth, plotHeight, rightPadding, bottomPadding);
+      _drawEmptyGraph(canvas, size, leftPadding, topPadding, plotWidth,
+          plotHeight, rightPadding, bottomPadding);
       return;
     }
 
@@ -421,21 +486,25 @@ class RealtimeGraphPainter extends CustomPainter {
     final windowStart = now - displayWindowSeconds; // Start of visible window
 
     // Grid lines
-    _drawGrid(canvas, leftPadding, topPadding, plotWidth, plotHeight, size, displayWindowSeconds);
+    _drawGrid(canvas, leftPadding, topPadding, plotWidth, plotHeight, size,
+        displayWindowSeconds);
 
     // Y-axis labels (distance in cm)
     _drawYAxisLabels(canvas, leftPadding, topPadding, plotHeight);
 
     // X-axis labels (time)
-    _drawXAxisLabels(canvas, leftPadding, topPadding, plotWidth, size, displayWindowSeconds);
+    _drawXAxisLabels(
+        canvas, leftPadding, topPadding, plotWidth, size, displayWindowSeconds);
 
     // Draw distance line
-    _drawDistanceLine(canvas, samples, leftPadding, topPadding, plotWidth, plotHeight, windowStart, now);
+    _drawDistanceLine(canvas, samples, leftPadding, topPadding, plotWidth,
+        plotHeight, windowStart, now);
 
     // Draw current point indicator
     if (samples.isNotEmpty) {
       final lastSample = samples.last;
-      final xNorm = ((lastSample.t - windowStart) / displayWindowSeconds).clamp(0.0, 1.0);
+      final xNorm =
+      ((lastSample.t - windowStart) / displayWindowSeconds).clamp(0.0, 1.0);
       final x = leftPadding + xNorm * plotWidth;
 
       final yNorm = (lastSample.distance / maxDepth).clamp(0.0, 1.0);
@@ -453,8 +522,15 @@ class RealtimeGraphPainter extends CustomPainter {
     }
   }
 
-  void _drawEmptyGraph(Canvas canvas, Size size, double leftPadding, double topPadding,
-      double plotWidth, double plotHeight, double rightPadding, double bottomPadding) {
+  void _drawEmptyGraph(
+      Canvas canvas,
+      Size size,
+      double leftPadding,
+      double topPadding,
+      double plotWidth,
+      double plotHeight,
+      double rightPadding,
+      double bottomPadding) {
     final tp = TextPainter(textDirection: TextDirection.ltr);
     tp.text = const TextSpan(
       text: 'Waiting for data...',
@@ -470,8 +546,14 @@ class RealtimeGraphPainter extends CustomPainter {
     );
   }
 
-  void _drawGrid(Canvas canvas, double leftPadding, double topPadding, double plotWidth,
-      double plotHeight, Size size, int windowSeconds) {
+  void _drawGrid(
+      Canvas canvas,
+      double leftPadding,
+      double topPadding,
+      double plotWidth,
+      double plotHeight,
+      Size size,
+      int windowSeconds) {
     final gridPaint = Paint()
       ..color = Colors.white.withOpacity(0.15)
       ..strokeWidth = 1;
@@ -497,7 +579,8 @@ class RealtimeGraphPainter extends CustomPainter {
     }
   }
 
-  void _drawYAxisLabels(Canvas canvas, double leftPadding, double topPadding, double plotHeight) {
+  void _drawYAxisLabels(
+      Canvas canvas, double leftPadding, double topPadding, double plotHeight) {
     final tp = TextPainter(textDirection: TextDirection.ltr);
     const labels = ['0cm', '200cm', '400cm', '600cm', '800cm', '1000cm'];
 
@@ -508,13 +591,14 @@ class RealtimeGraphPainter extends CustomPainter {
       );
       tp.layout();
 
-      final y = topPadding + plotHeight - (i / 5.0) * plotHeight - tp.height / 2;
+      final y =
+          topPadding + plotHeight - (i / 5.0) * plotHeight - tp.height / 2;
       tp.paint(canvas, Offset(8, y));
     }
   }
 
-  void _drawXAxisLabels(Canvas canvas, double leftPadding, double topPadding, double plotWidth,
-      Size size, int windowSeconds) {
+  void _drawXAxisLabels(Canvas canvas, double leftPadding, double topPadding,
+      double plotWidth, Size size, int windowSeconds) {
     final tp = TextPainter(textDirection: TextDirection.ltr);
     final now = DateTime.now();
 
@@ -523,7 +607,8 @@ class RealtimeGraphPainter extends CustomPainter {
       final secondsAgo = (windowSeconds * (5 - i) / 5).round();
       final timePoint = now.subtract(Duration(seconds: secondsAgo));
 
-      final timeText = '${timePoint.hour.toString().padLeft(2, '0')}:${timePoint.minute.toString().padLeft(2, '0')}:${timePoint.second.toString().padLeft(2, '0')}';
+      final timeText =
+          '${timePoint.hour.toString().padLeft(2, '0')}:${timePoint.minute.toString().padLeft(2, '0')}:${timePoint.second.toString().padLeft(2, '0')}';
 
       tp.text = TextSpan(
         text: timeText,
@@ -536,9 +621,15 @@ class RealtimeGraphPainter extends CustomPainter {
     }
   }
 
-  void _drawDistanceLine(Canvas canvas, List<_Sample> samples, double leftPadding,
-      double topPadding, double plotWidth, double plotHeight, double windowStart, double now) {
-
+  void _drawDistanceLine(
+      Canvas canvas,
+      List<_Sample> samples,
+      double leftPadding,
+      double topPadding,
+      double plotWidth,
+      double plotHeight,
+      double windowStart,
+      double now) {
     final path = Path();
     bool first = true;
 
@@ -548,7 +639,8 @@ class RealtimeGraphPainter extends CustomPainter {
       if (sample.t < windowStart) continue;
 
       // Calculate normalized position in the window
-      final xNorm = ((sample.t - windowStart) / displayWindowSeconds).clamp(0.0, 1.0);
+      final xNorm =
+      ((sample.t - windowStart) / displayWindowSeconds).clamp(0.0, 1.0);
       final x = leftPadding + xNorm * plotWidth;
 
       final yNorm = (sample.distance / maxDepth).clamp(0.0, 1.0);
