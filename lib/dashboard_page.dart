@@ -55,8 +55,8 @@ class _DashboardPageState extends State<DashboardPage> {
   // Fetch weather from Open-Meteo API
   Future<void> _fetchWeather() async {
     try {
-      final lat = 19.0760;  // Mumbai rescue site coordinates - UPDATE TO YOUR LOCATION
-      final lon = 72.8777;
+      final lat = 10.9974;  // Mumbai rescue site coordinates - UPDATE TO YOUR LOCATION
+      final lon = 76.9589;
 
       final url = Uri.parse(
           'https://api.open-meteo.com/v1/forecast?'
@@ -678,7 +678,7 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       // Live Graph Card
       _DashboardCardData(
-        title: 'Live Graph',
+        title: 'Live Heartbeat Graph',
         description: 'Monitor live vital signs',
         imageAsset: 'images/LiveGraph.png',
         accent: Colors.cyanAccent,

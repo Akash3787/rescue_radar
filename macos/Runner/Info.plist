@@ -40,5 +40,9 @@
     <string>MainMenu</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>This app needs access to your location to display weather information for your current area.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>This app needs access to your location to display weather information for your current area.</string>
 </dict>
 </plist>
