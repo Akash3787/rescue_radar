@@ -19,7 +19,7 @@ class CameraInterface extends StatefulWidget {
 }
 
 class _CameraInterfaceState extends State<CameraInterface> {
-  static const String _backendBase = 'https://web-production-87279.up.railway.app';
+  static const String _backendBase = 'http://172.20.49.59:5001';
   bool _streaming = false;
   bool _usingPolling = false;
   String _status = 'idle';
@@ -257,8 +257,8 @@ class _CameraInterfaceState extends State<CameraInterface> {
             SnackBar(
               content: Text(
                 '✅ Victim reported: ${victimIdController.text}\n'
-                'Distance: ${distance.toStringAsFixed(1)} cm'
-                '${latitude != null && longitude != null ? '\nGPS: ${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}' : '\n⚠️ No GPS'}',
+                    'Distance: ${distance.toStringAsFixed(1)} cm'
+                    '${latitude != null && longitude != null ? '\nGPS: ${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}' : '\n⚠️ No GPS'}',
               ),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 4),
@@ -353,16 +353,16 @@ class _CameraInterfaceState extends State<CameraInterface> {
           const SizedBox(width: 8),
           ElevatedButton.icon(
             onPressed: _reportingVictim ? null : _reportVictimDetection,
-            icon: _reportingVictim 
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-              : const Icon(Icons.person_add),
+            icon: _reportingVictim
+                ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+                : const Icon(Icons.person_add),
             label: const Text('Report Victim'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
