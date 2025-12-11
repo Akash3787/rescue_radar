@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
 import 'mapping_interface.dart';
 import 'camera_interface.dart';
 import 'live_graph_interface.dart';
 import 'victim_readings_page.dart';
 import 'main.dart'; // for ThemeController
+import 'dart:convert';
+import 'dart:async';
+
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -20,246 +24,848 @@ class _DashboardPageState extends State<DashboardPage> {
     _NavItem('Mapping', Icons.radar),
     _NavItem('Live Graphs', Icons.show_chart),
     _NavItem('Camera', Icons.camera_alt),
+    _NavItem('Weather', Icons.cloud),  // ✅ NEW WEATHER NAV ITEM
   ];
 
+  // Weather state variables
+  String _weatherTemp = '--';
+  String _weatherCondition = 'Loading...';
+  String _weatherDescription = '';
+  double _weatherWindSpeed = 0;
+  int _weatherHumidity = 0;
+
   int selectedIndex = 0;
-  bool isLightOn = false; // LED Toggle State
+  bool isLightOn = false;
 
   final List<Widget> pages = [
     const VictimReadingsPage(),
     const MappingInterface(),
     const LiveGraphInterface(),
     CameraInterface(),
+    // Weather page will be handled separately
   ];
+
+  // Initialize weather
+  @override
+  void initState() {
+    super.initState();
+    _fetchWeather();
+    Timer.periodic(const Duration(minutes: 5), (timer) => _fetchWeather());
+  }
+
+  // Get current location (works on mobile and macOS)
+  Future<Position?> _getCurrentLocation() async {
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print('Location services are disabled');
+        return null;
+      }
+
+      // Check location permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          print('Location permissions are denied');
+          return null;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        print('Location permissions are permanently denied');
+        return null;
+      }
+
+      // Get current position
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+    } catch (e) {
+      print('Error getting location: $e');
+      return null;
+    }
+  }
+
+  // Fetch weather from Open-Meteo API
+  Future<void> _fetchWeather() async {
+    try {
+      double lat;
+      double lon;
+      String timezone = 'auto'; // Auto-detect timezone
+
+      // Try to get current location (works on Android, iOS, and macOS)
+      Position? position = await _getCurrentLocation();
+      
+      if (position != null) {
+        lat = position.latitude;
+        lon = position.longitude;
+        print('Using device location: $lat, $lon');
+      } else {
+        // Fallback to default coordinates (Mumbai)
+        lat = 19.0760;
+        lon = 72.8777;
+        timezone = 'Asia/Kolkata';
+        print('Using fallback location: $lat, $lon');
+      }
+
+      final url = Uri.parse(
+          'https://api.open-meteo.com/v1/forecast?'
+              'latitude=$lat&longitude=$lon&'
+              'current_weather=true&hourly=relativehumidity_2m&'
+              'timezone=$timezone'
+      );
+
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        if (data['current_weather'] == null) {
+          print('ERROR: current_weather not found in API response');
+          setState(() {
+            _weatherDescription = 'Weather data unavailable';
+          });
+          return;
+        }
+
+        final current = data['current_weather'];
+        final code = current['weathercode'] as int? ?? 0;
+        final temp = current['temperature'] as num? ?? 0.0;
+        final windSpeed = current['windspeed'] as num? ?? 0.0;
+
+        // Get humidity from hourly data
+        int humidity = 0;
+        if (data['hourly'] != null && 
+            data['hourly']['relativehumidity_2m'] != null &&
+            data['hourly']['time'] != null) {
+          final humidityList = data['hourly']['relativehumidity_2m'] as List;
+          final times = data['hourly']['time'] as List;
+          final currentTime = current['time'] as String?;
+          
+          if (currentTime != null && times.isNotEmpty) {
+            int index = times.indexOf(currentTime);
+            if (index == -1 && times.isNotEmpty) {
+              index = 0; // Use first available value if exact time not found
+            }
+            
+            if (index >= 0 && index < humidityList.length) {
+              humidity = humidityList[index] is int 
+                  ? humidityList[index] 
+                  : (humidityList[index] as num).round();
+            }
+          }
+        }
+
+        setState(() {
+          _weatherTemp = '${temp.toStringAsFixed(1)}°C';
+          _weatherCondition = _getWeatherIcon(code);
+          _weatherWindSpeed = windSpeed.toDouble();
+          _weatherHumidity = humidity;
+          _weatherDescription = _getWeatherDescription(code);
+        });
+      } else {
+        print('ERROR: API returned status code ${response.statusCode}');
+        setState(() {
+          _weatherDescription = 'Failed to fetch weather';
+        });
+      }
+    } catch (e) {
+      print('Weather fetch error: $e');
+      setState(() {
+        _weatherDescription = 'Error: ${e.toString()}';
+        _weatherTemp = '--';
+      });
+    }
+  }
+
+  // Convert WMO weather code to emoji
+  String _getWeatherIcon(int code) {
+    switch (code) {
+      case 0:
+        return '🌤️'; // Clear sky
+      case 1:
+      case 2:
+      case 3:
+        return '☁️'; // Cloudy
+      case 45:
+      case 48:
+        return '🌫️'; // Foggy
+      case 51:
+      case 53:
+      case 55:
+        return '🌧️'; // Drizzle
+      case 61:
+      case 63:
+      case 65:
+        return '🌧️'; // Rain
+      case 71:
+      case 73:
+      case 75:
+        return '🌨️'; // Snow
+      case 77:
+        return '🌨️'; // Snow grains
+      case 80:
+      case 81:
+      case 82:
+        return '🌧️'; // Rain showers
+      case 85:
+      case 86:
+        return '🌨️'; // Snow showers
+      case 95:
+      case 96:
+      case 99:
+        return '⛈️'; // Thunderstorm
+      default:
+        return '🌫️'; // Unknown
+    }
+  }
+
+  // Get weather description from code
+  String _getWeatherDescription(int code) {
+    switch (code) {
+      case 0:
+        return 'Clear Sky';
+      case 1:
+      case 2:
+        return 'Mostly Cloudy';
+      case 3:
+        return 'Overcast';
+      case 45:
+      case 48:
+        return 'Foggy';
+      case 51:
+      case 53:
+      case 55:
+        return 'Drizzle';
+      case 61:
+      case 63:
+      case 65:
+        return 'Rainy';
+      case 71:
+      case 73:
+      case 75:
+        return 'Snowy';
+      case 80:
+      case 81:
+      case 82:
+        return 'Rain Showers';
+      case 85:
+      case 86:
+        return 'Snow Showers';
+      case 95:
+      case 96:
+      case 99:
+        return 'Thunderstorm';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  // Helper methods for responsive design
+  bool _isMobile(BuildContext context) {
+    return MediaQuery.of(context).size.width < 600;
+  }
+
+  bool _isTablet(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    return width >= 600 && width < 1024;
+  }
+
+  bool _isDesktop(BuildContext context) {
+    return MediaQuery.of(context).size.width >= 1024;
+  }
+
+  double _getResponsivePadding(BuildContext context) {
+    if (_isMobile(context)) return 12.0;
+    if (_isTablet(context)) return 16.0;
+    return 20.0;
+  }
+
+  double _getResponsiveSpacing(BuildContext context) {
+    if (_isMobile(context)) return 12.0;
+    if (_isTablet(context)) return 18.0;
+    return 26.0;
+  }
+
+  double _getResponsiveFontSize(BuildContext context, double baseSize) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 600) return baseSize * 0.85;
+    if (width < 1024) return baseSize * 0.95;
+    return baseSize;
+  }
+
+  int _getGridCrossAxisCount(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 600) return 1; // Mobile: 1 column
+    if (width < 1024) return 2; // Tablet: 2 columns
+    return 2; // Desktop: 2 columns (can be changed to 3 or 4 if needed)
+  }
+
+  double _getSidebarWidth(BuildContext context) {
+    if (_isMobile(context)) return 0; // No sidebar on mobile
+    if (_isTablet(context)) return 200;
+    return 240;
+  }
 
   @override
   Widget build(BuildContext context) {
     final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final bool isMobile = _isMobile(context);
+    final double padding = _getResponsivePadding(context);
+    final double spacing = _getResponsiveSpacing(context);
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Row(
-        children: [
-          // SIDEBAR
-          Container(
-            width: 240,
-            color: isDarkMode ? const Color(0xFF10131A) : Colors.white,
-            child: Column(
-              children: [
-                const SizedBox(height: 24),
-                Text(
-                  'Radar Rescue',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: isDarkMode ? Colors.cyanAccent : Colors.teal[800],
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: navItems.length,
-                    itemBuilder: (context, index) {
-                      final active = index == selectedIndex;
-                      final activeColor =
-                      isDarkMode ? Colors.cyanAccent : Colors.blue;
-                      final inactiveColor =
-                      isDarkMode ? Colors.white70 : Colors.black54;
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        drawer: isMobile ? _buildDrawer(context, isDarkMode) : null,
+        body: Row(
+          children: [
+            // ========== SIDEBAR (Desktop/Tablet only) ==========
+            if (!isMobile)
+              Container(
+                width: _getSidebarWidth(context),
+                color: isDarkMode ? const Color(0xFF10131A) : Colors.white,
+                child: _buildSidebarContent(context, isDarkMode),
+              ),
 
-                      return ListTile(
-                        leading: Icon(
-                          navItems[index].icon,
-                          color: active ? activeColor : inactiveColor,
-                        ),
-                        title: Text(
-                          navItems[index].title,
-                          style: TextStyle(
-                            color: active ? activeColor : inactiveColor,
-                            fontWeight:
-                            active ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        tileColor: active
-                            ? (isDarkMode
-                            ? Colors.blue.withAlpha(40)
-                            : Colors.blue[50])
-                            : Colors.transparent,
-                        onTap: () => setState(() => selectedIndex = index),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // MAIN CONTENT
-          Expanded(
-            child: Column(
-              children: [
-                // TOP BAR
-                Container(
-                  height: 56,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color:
-                    isDarkMode ? const Color(0xFF151922) : Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        color: isDarkMode
-                            ? Colors.black.withAlpha(150)
-                            : Colors.grey.withAlpha(100),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Flexible(
-                        flex: 0,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 280),
-                          child: Text(
-                            navItems[selectedIndex].title,
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color:
-                              isDarkMode ? Colors.white : Colors.black87,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      // ConstrainedBox(
-                      //   constraints: const BoxConstraints(
-                      //     maxWidth: 420,
-                      //     minWidth: 120,
-                      //   ),
-                      //   child: SizedBox(
-                      //     width: double.infinity,
-                      //     child: TextField(
-                      //       style: TextStyle(
-                      //         color:
-                      //         isDarkMode ? Colors.white : Colors.black87,
-                      //       ),
-                      //       decoration: InputDecoration(
-                      //         filled: true,
-                      //         fillColor: isDarkMode
-                      //             ? const Color(0xFF1C212C)
-                      //             : const Color(0xFFF0F2F5),
-                      //         prefixIcon: Icon(
-                      //           Icons.search,
-                      //           color: isDarkMode
-                      //               ? Colors.white54
-                      //               : Colors.black38,
-                      //         ),
-                      //         hintText: 'Search...',
-                      //         border: OutlineInputBorder(
-                      //           borderRadius: BorderRadius.circular(8),
-                      //           borderSide: BorderSide.none,
-                      //         ),
-                      //         isDense: true,
-                      //       ),
-                      //     ),
-                      //   ),
-                      // ),
-                      const SizedBox(width: 12),
-                      Switch(
-                        value:
-                        ThemeController.of(context)?.isDark ?? false,
-                        onChanged: (value) {
-                          ThemeController.of(context)?.onToggle(value);
-                        },
-                      ),
-                      const SizedBox(width: 12),
-                      Icon(
-                        Icons.notifications,
-                        color:
-                        isDarkMode ? Colors.white70 : Colors.black54,
-                      ),
-                      const SizedBox(width: 12),
-                      CircleAvatar(
-                        backgroundColor: isDarkMode
-                            ? Colors.cyanAccent
-                            : Colors.teal[700],
-                        child:
-                        const Icon(Icons.person, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // BODY WITH GRID + BUTTONS (STACK)
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Stack(
-                      children: [
-                        // Original Grid
-                        selectedIndex == 0
-                            ? _buildDashboardGrid(isDarkMode)
-                            : pages[selectedIndex - 1],
-
-                        // Modern Toggle Switches (Virtual Box Position - Bottom Left)
-                        Positioned(
-                          bottom: 40,
-                          right: 30,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // SOS Toggle Switch (No white circle)
-                              _ModernToggleSwitch(
-                                isActive: true,
-                                title: 'SOS',
-                                activeColor: const Color(0xFFFF4757),
-                                icon: Icons.warning_amber_rounded,
-                                onTap: _sendSOSAlert,
-                              ),
-                              const SizedBox(height: 10),
-                              // Light Toggle Switch (No white circle)
-                              _ModernToggleSwitch(
-                                isActive: isLightOn,
-                                title: 'LED',
-                                activeColor: const Color(0xFF2ED573),
-                                icon: isLightOn ? Icons.lightbulb : Icons.lightbulb_outline,
-                                onTap: () {
-                                  setState(() {
-                                    isLightOn = !isLightOn;
-                                  });
-                                  _toggleLight(isLightOn);
-                                },
-                              ),
-                            ],
-                          ),
+            // ========== MAIN CONTENT ==========
+            Expanded(
+              child: Column(
+                children: [
+                  // ========== TOP BAR WITH WEATHER ==========
+                  Container(
+                    height: isMobile ? 56 : 60,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: padding,
+                      vertical: isMobile ? 8 : 0,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDarkMode ? const Color(0xFF151922) : Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: isDarkMode
+                              ? Colors.black.withAlpha(150)
+                              : Colors.grey.withAlpha(100),
+                          blurRadius: 4,
                         ),
                       ],
                     ),
+                    child: Row(
+                      children: [
+                        // Menu button for mobile
+                        if (isMobile)
+                          IconButton(
+                            icon: Icon(
+                              Icons.menu,
+                              color: isDarkMode ? Colors.white : Colors.black87,
+                            ),
+                            onPressed: () => Scaffold.of(context).openDrawer(),
+                          ),
+                        Flexible(
+                          flex: 0,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: isMobile ? double.infinity : 280,
+                            ),
+                            child: Text(
+                              navItems[selectedIndex].title,
+                              style: TextStyle(
+                                fontSize: _getResponsiveFontSize(context, 20),
+                                fontWeight: FontWeight.bold,
+                                color: isDarkMode
+                                    ? Colors.white
+                                    : Colors.black87,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        // ✅ WEATHER DISPLAY IN TOP BAR
+                        if (!isMobile)
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: spacing * 0.5,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDarkMode
+                                  ? Colors.grey[800]?.withAlpha(100)
+                                  : Colors.grey[200],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _weatherCondition,
+                                  style: TextStyle(
+                                    fontSize: _getResponsiveFontSize(context, 16),
+                                  ),
+                                ),
+                                SizedBox(width: spacing * 0.25),
+                                Text(
+                                  _weatherTemp,
+                                  style: TextStyle(
+                                    fontSize: _getResponsiveFontSize(context, 14),
+                                    fontWeight: FontWeight.w600,
+                                    color: isDarkMode
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (!isMobile) SizedBox(width: spacing * 0.5),
+                        // Theme Toggle Switch
+                        if (!isMobile)
+                          Switch(
+                            value: ThemeController.of(context)?.isDark ?? false,
+                            onChanged: (value) {
+                              ThemeController.of(context)?.onToggle(value);
+                            },
+                          ),
+                        if (!isMobile) SizedBox(width: spacing * 0.5),
+                        if (!isMobile)
+                          Icon(
+                            Icons.notifications,
+                            color: isDarkMode ? Colors.white70 : Colors.black54,
+                          ),
+                        if (!isMobile) SizedBox(width: spacing * 0.5),
+                        if (!isMobile)
+                          CircleAvatar(
+                            radius: isMobile ? 16 : 18,
+                            backgroundColor: isDarkMode
+                                ? Colors.cyanAccent
+                                : Colors.teal[700],
+                            child: Icon(
+                              Icons.person,
+                              color: Colors.white,
+                              size: isMobile ? 18 : 20,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+
+                  // ========== BODY WITH GRID + ACTION BUTTONS ==========
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.all(padding),
+                      child: Stack(
+                        children: [
+                          // Main Content Grid
+                          selectedIndex == 0
+                              ? _buildDashboardGrid(context, isDarkMode)
+                              : selectedIndex == 5
+                              ? _buildWeatherPage(context, isDarkMode)
+                              : pages[selectedIndex - 1],
+
+                          // ========== ACTION BUTTONS (SOS + LED) ==========
+                          Positioned(
+                            bottom: padding * 2,
+                            right: padding * 1.5,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // SOS Emergency Button
+                                _ModernToggleSwitch(
+                                  isActive: true,
+                                  title: 'SOS',
+                                  activeColor: const Color(0xFFFF4757),
+                                  icon: Icons.warning_amber_rounded,
+                                  onTap: _sendSOSAlert,
+                                  isMobile: isMobile,
+                                ),
+                                SizedBox(height: spacing * 0.4),
+                                // LED Light Control Button
+                                _ModernToggleSwitch(
+                                  isActive: isLightOn,
+                                  title: 'LED',
+                                  activeColor: const Color(0xFF2ED573),
+                                  icon: isLightOn
+                                      ? Icons.lightbulb
+                                      : Icons.lightbulb_outline,
+                                  onTap: () {
+                                    setState(() {
+                                      isLightOn = !isLightOn;
+                                    });
+                                    _toggleLight(isLightOn);
+                                  },
+                                  isMobile: isMobile,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  // SEND SOS TO FLASK → ESP
-  void _sendSOSAlert() async {
-    final url = Uri.parse("http://your-flask-server-ip/send-sos");
-    await http.post(url);
+  // Build sidebar content (reusable for drawer and sidebar)
+  Widget _buildSidebarContent(BuildContext context, bool isDarkMode) {
+    return Column(
+      children: [
+        SizedBox(height: _getResponsivePadding(context) * 2),
+        Text(
+          'Radar Rescue',
+          style: TextStyle(
+            fontSize: _getResponsiveFontSize(context, 28),
+            fontWeight: FontWeight.bold,
+            color: isDarkMode ? Colors.cyanAccent : Colors.teal[800],
+            letterSpacing: 2,
+          ),
+        ),
+        SizedBox(height: _getResponsivePadding(context) * 0.67),
+        Expanded(
+          child: ListView.builder(
+            itemCount: navItems.length,
+            itemBuilder: (context, index) {
+              final active = index == selectedIndex;
+              final activeColor =
+                  isDarkMode ? Colors.cyanAccent : Colors.blue;
+              final inactiveColor =
+                  isDarkMode ? Colors.white70 : Colors.black54;
+
+              return ListTile(
+                dense: _isMobile(context),
+                leading: Icon(
+                  navItems[index].icon,
+                  color: active ? activeColor : inactiveColor,
+                ),
+                title: Text(
+                  navItems[index].title,
+                  style: TextStyle(
+                    fontSize: _getResponsiveFontSize(context, 16),
+                    color: active ? activeColor : inactiveColor,
+                    fontWeight: active
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+                tileColor: active
+                    ? (isDarkMode
+                    ? Colors.blue.withAlpha(40)
+                    : Colors.blue[50])
+                    : Colors.transparent,
+                onTap: () {
+                  setState(() => selectedIndex = index);
+                  if (_isMobile(context)) {
+                    Navigator.of(context).pop(); // Close drawer
+                  }
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
-  void _toggleLight(bool status) async {
-    final url = Uri.parse("http://your-flask-server-ip/toggle-light");
-    await http.post(url, body: {"status": status ? "ON" : "OFF"});
+  // Build drawer for mobile
+  Widget _buildDrawer(BuildContext context, bool isDarkMode) {
+    return Drawer(
+      backgroundColor: isDarkMode ? const Color(0xFF10131A) : Colors.white,
+      child: _buildSidebarContent(context, isDarkMode),
+    );
   }
 
-  Widget _buildDashboardGrid(bool isDarkMode) {
+  // ========== BUILD WEATHER PAGE ==========
+  Widget _buildWeatherPage(BuildContext context, bool isDarkMode) {
+    final now = DateTime.now();
+    final dateFormatter = '${now.day}/${now.month}/${now.year}';
+    final timeFormatter =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    final padding = _getResponsivePadding(context);
+    final isMobile = _isMobile(context);
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.all(padding),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Large Weather Icon
+            Text(
+              _weatherCondition,
+              style: TextStyle(
+                fontSize: isMobile ? 64 : 96,
+              ),
+            ),
+            SizedBox(height: padding * 2),
+
+            // Temperature Card
+            Container(
+              width: double.infinity,
+              constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 400),
+              padding: EdgeInsets.all(padding * 2),
+              decoration: BoxDecoration(
+                color: isDarkMode
+                    ? const Color(0xFF1C212C)
+                    : Colors.grey[100],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDarkMode
+                      ? Colors.cyanAccent.withAlpha(100)
+                      : Colors.blue.withAlpha(100),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'Temperature',
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 14),
+                      color: isDarkMode
+                          ? Colors.white70
+                          : Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(height: padding * 0.67),
+                  Text(
+                    _weatherTemp,
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 48),
+                      fontWeight: FontWeight.bold,
+                      color: isDarkMode
+                          ? Colors.cyanAccent
+                          : Colors.blue[700],
+                    ),
+                  ),
+                  SizedBox(height: padding * 0.67),
+                  Text(
+                    _weatherDescription,
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 18),
+                      color: isDarkMode
+                          ? Colors.white
+                          : Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: padding * 2.67),
+
+            // Date & Time Section
+            Container(
+              width: double.infinity,
+              constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 400),
+              padding: EdgeInsets.all(padding * 1.67),
+              decoration: BoxDecoration(
+                color: isDarkMode
+                    ? const Color(0xFF1C212C)
+                    : Colors.grey[100],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDarkMode
+                      ? Colors.cyanAccent.withAlpha(100)
+                      : Colors.blue.withAlpha(100),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      Column(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            color: isDarkMode
+                                ? Colors.cyanAccent
+                                : Colors.blue,
+                            size: isMobile ? 28 : 32,
+                          ),
+                          SizedBox(height: padding * 0.67),
+                          Text(
+                            'Date',
+                            style: TextStyle(
+                              fontSize: _getResponsiveFontSize(context, 12),
+                              color: isDarkMode
+                                  ? Colors.white70
+                                  : Colors.black54,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            dateFormatter,
+                            style: TextStyle(
+                              fontSize: _getResponsiveFontSize(context, 16),
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode
+                                  ? Colors.white
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            color: isDarkMode
+                                ? Colors.cyanAccent
+                                : Colors.blue,
+                            size: isMobile ? 28 : 32,
+                          ),
+                          SizedBox(height: padding * 0.67),
+                          Text(
+                            'Time',
+                            style: TextStyle(
+                              fontSize: _getResponsiveFontSize(context, 12),
+                              color: isDarkMode
+                                  ? Colors.white70
+                                  : Colors.black54,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            timeFormatter,
+                            style: TextStyle(
+                              fontSize: _getResponsiveFontSize(context, 16),
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode
+                                  ? Colors.white
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // Additional Weather Details
+            Wrap(
+              spacing: padding,
+              runSpacing: padding,
+              alignment: WrapAlignment.center,
+              children: [
+                // Wind Speed
+                Container(
+                  padding: EdgeInsets.all(padding * 1.33),
+                  decoration: BoxDecoration(
+                    color: isDarkMode
+                        ? const Color(0xFF1C212C)
+                        : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDarkMode
+                          ? Colors.cyanAccent.withAlpha(100)
+                          : Colors.blue.withAlpha(100),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.air,
+                        color: isDarkMode
+                            ? Colors.cyanAccent
+                            : Colors.blue,
+                        size: isMobile ? 24 : 28,
+                      ),
+                      SizedBox(height: padding * 0.67),
+                      Text(
+                        'Wind Speed',
+                        style: TextStyle(
+                          fontSize: _getResponsiveFontSize(context, 11),
+                          color: isDarkMode
+                              ? Colors.white70
+                              : Colors.black54,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '${_weatherWindSpeed.toStringAsFixed(1)} km/h',
+                        style: TextStyle(
+                          fontSize: _getResponsiveFontSize(context, 14),
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode
+                              ? Colors.white
+                              : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Humidity
+                Container(
+                  padding: EdgeInsets.all(padding * 1.33),
+                  decoration: BoxDecoration(
+                    color: isDarkMode
+                        ? const Color(0xFF1C212C)
+                        : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDarkMode
+                          ? Colors.cyanAccent.withAlpha(100)
+                          : Colors.blue.withAlpha(100),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.opacity,
+                        color: isDarkMode
+                            ? Colors.cyanAccent
+                            : Colors.blue,
+                        size: isMobile ? 24 : 28,
+                      ),
+                      SizedBox(height: padding * 0.67),
+                      Text(
+                        'Humidity',
+                        style: TextStyle(
+                          fontSize: _getResponsiveFontSize(context, 11),
+                          color: isDarkMode
+                              ? Colors.white70
+                              : Colors.black54,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '$_weatherHumidity%',
+                        style: TextStyle(
+                          fontSize: _getResponsiveFontSize(context, 14),
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode
+                              ? Colors.white
+                              : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ========== BUILD DASHBOARD GRID ==========
+  Widget _buildDashboardGrid(BuildContext context, bool isDarkMode) {
     final cardData = [
+      // Data Logging Card
       _DashboardCardData(
         title: 'Data Logging',
         description: 'View logged sensor data',
@@ -267,6 +873,7 @@ class _DashboardPageState extends State<DashboardPage> {
         accent: Colors.cyanAccent,
         onTap: () => _navigateTo(const VictimReadingsPage()),
       ),
+      // Mapping Interface Card
       _DashboardCardData(
         title: 'Mapping Interface',
         description: 'View and control radar mapping',
@@ -274,6 +881,7 @@ class _DashboardPageState extends State<DashboardPage> {
         accent: Colors.cyanAccent,
         onTap: () => _navigateTo(const MappingInterface()),
       ),
+      // Live Graph Card
       _DashboardCardData(
         title: 'Live Heartbeat Graph',
         description: 'Monitor live vital signs',
@@ -281,6 +889,7 @@ class _DashboardPageState extends State<DashboardPage> {
         accent: Colors.cyanAccent,
         onTap: () => _navigateTo(const LiveGraphInterface()),
       ),
+      // Camera Interface Card
       _DashboardCardData(
         title: 'Camera Interface',
         description: 'Visual access via cameras',
@@ -290,22 +899,50 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     ];
 
+    final crossAxisCount = _getGridCrossAxisCount(context);
+    final spacing = _getResponsiveSpacing(context);
+    final isMobile = _isMobile(context);
+
     return GridView.builder(
       itemCount: cardData.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 26,
-        mainAxisSpacing: 26,
-        childAspectRatio: 1.1,
+      padding: EdgeInsets.zero,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: spacing,
+        mainAxisSpacing: spacing,
+        childAspectRatio: isMobile ? 1.2 : 1.1,
       ),
       itemBuilder: (context, index) {
         final card = cardData[index];
         return _DashboardNeatCard(
           data: card,
           isDarkMode: isDarkMode,
+          parentContext: context,
         );
       },
     );
+  }
+
+  // ========== SEND SOS ALERT TO FLASK/ESP ==========
+  void _sendSOSAlert() async {
+    final url = Uri.parse("http://your-flask-server-ip/send-sos");
+    try {
+      await http.post(url);
+      print('SOS Alert Sent!');
+    } catch (e) {
+      print('SOS error: $e');
+    }
+  }
+
+  // ========== TOGGLE LED LIGHT ==========
+  void _toggleLight(bool status) async {
+    final url = Uri.parse("http://your-flask-server-ip/toggle-light");
+    try {
+      await http.post(url, body: {"status": status ? "ON" : "OFF"});
+      print('LED toggled: $status');
+    } catch (e) {
+      print('Light toggle error: $e');
+    }
   }
 
   void _navigateTo(Widget page) {
@@ -313,13 +950,14 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-// ========== MODERN TOGGLE SWITCH ==========
+// ========== MODERN TOGGLE SWITCH WIDGET ==========
 class _ModernToggleSwitch extends StatefulWidget {
   final bool isActive;
   final String title;
   final Color activeColor;
   final IconData icon;
   final VoidCallback onTap;
+  final bool isMobile;
 
   const _ModernToggleSwitch({
     required this.isActive,
@@ -327,6 +965,7 @@ class _ModernToggleSwitch extends StatefulWidget {
     required this.activeColor,
     required this.icon,
     required this.onTap,
+    this.isMobile = false,
   });
 
   @override
@@ -342,6 +981,7 @@ class _ModernToggleSwitchState extends State<_ModernToggleSwitch>
   @override
   void initState() {
     super.initState();
+
     _controller = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -403,8 +1043,11 @@ class _ModernToggleSwitchState extends State<_ModernToggleSwitch>
           return Transform.scale(
             scale: _scaleAnimation.value,
             child: Container(
-              width: 100,
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+              width: widget.isMobile ? 80 : 100,
+              padding: EdgeInsets.symmetric(
+                vertical: widget.isMobile ? 8 : 10,
+                horizontal: widget.isMobile ? 10 : 14,
+              ),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
                 gradient: LinearGradient(
@@ -427,7 +1070,8 @@ class _ModernToggleSwitchState extends State<_ModernToggleSwitch>
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: widget.activeColor.withOpacity(_glowAnimation.value),
+                    color: widget.activeColor
+                        .withOpacity(_glowAnimation.value),
                     blurRadius: 15,
                     spreadRadius: widget.isActive ? 1 : 0,
                   ),
@@ -470,7 +1114,6 @@ class _ModernToggleSwitchState extends State<_ModernToggleSwitch>
                       ),
                     ),
                   ),
-                  // White circle COMPLETELY REMOVED from both switches
                 ],
               ),
             ),
@@ -481,18 +1124,33 @@ class _ModernToggleSwitchState extends State<_ModernToggleSwitch>
   }
 }
 
-// ========== CARD WIDGET ==========
+// ========== DASHBOARD CARD WIDGET ==========
 class _DashboardNeatCard extends StatelessWidget {
   final _DashboardCardData data;
   final bool isDarkMode;
+  final BuildContext parentContext;
 
   const _DashboardNeatCard({
     required this.data,
     required this.isDarkMode,
+    required this.parentContext,
   });
+
+  bool _isMobile(BuildContext context) {
+    return MediaQuery.of(context).size.width < 600;
+  }
+
+  double _getResponsiveFontSize(BuildContext context, double baseSize) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 600) return baseSize * 0.85;
+    if (width < 1024) return baseSize * 0.95;
+    return baseSize;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = _isMobile(context);
+    final padding = isMobile ? 12.0 : 16.0;
     final borderColor = isDarkMode
         ? data.accent.withAlpha(140)
         : Colors.blueGrey.withAlpha(120);
@@ -520,10 +1178,11 @@ class _DashboardNeatCard extends StatelessWidget {
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(padding),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Card Title Row
               Row(
                 children: [
                   Expanded(
@@ -532,20 +1191,21 @@ class _DashboardNeatCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: _getResponsiveFontSize(context, 18),
                         fontWeight: FontWeight.w700,
                         color: isDarkMode ? Colors.white : Colors.black87,
                       ),
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.keyboard_arrow_down,
-                    size: 18,
+                    size: isMobile ? 16 : 18,
                     color: Colors.white60,
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: padding * 0.5),
+              // Card Image Container
               Expanded(
                 child: Container(
                   width: double.infinity,
@@ -558,14 +1218,15 @@ class _DashboardNeatCard extends StatelessWidget {
                       color: Colors.white.withAlpha(20),
                     ),
                   ),
-                  padding: const EdgeInsets.all(6),
+                  padding: EdgeInsets.all(padding * 0.375),
                   child: FittedBox(
                     fit: BoxFit.contain,
                     child: Image.asset(data.imageAsset),
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              SizedBox(height: padding * 0.625),
+              // Card Description + Arrow
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -575,14 +1236,14 @@ class _DashboardNeatCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: _getResponsiveFontSize(context, 13),
                         color: isDarkMode
                             ? Colors.white70
                             : Colors.black54,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: padding * 0.5),
                   Container(
                     width: 32,
                     height: 32,
@@ -606,10 +1267,11 @@ class _DashboardNeatCard extends StatelessWidget {
   }
 }
 
-// ========== MODELS ==========
+// ========== DATA MODELS ==========
 class _NavItem {
   final String title;
   final IconData icon;
+
   _NavItem(this.title, this.icon);
 }
 
