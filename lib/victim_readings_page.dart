@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'models/victim_reading.dart';
 import 'services/api_service.dart';
 import 'live_graph_interface.dart';
+import 'victim_map_screen.dart';
 
 class VictimReadingsPage extends StatefulWidget {
   const VictimReadingsPage({super.key});
@@ -360,7 +361,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
     );
   }
 
-  Future<void> _openInGoogleMaps(VictimReading victim) async {
+  void _openInGoogleMaps(VictimReading victim) {
     if (victim.latitude == null || victim.longitude == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -373,75 +374,12 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
       return;
     }
 
-    final lat = victim.latitude!;
-    final lon = victim.longitude!;
-    final urlString = 'https://www.google.com/maps?q=$lat,$lon';
-    final url = Uri.parse(urlString);
-
-    try {
-      if (Platform.isMacOS) {
-        final result = await Process.run('open', [urlString]);
-        if (result.exitCode == 0) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content:
-                const Text("🗺️ Opening location in Google Maps..."),
-                backgroundColor:
-                _isDarkMode ? Colors.blue.shade800 : Colors.blue,
-              ),
-            );
-          }
-          return;
-        } else {
-          throw Exception('Failed to open URL: ${result.stderr}');
-        }
-      }
-
-      bool canLaunch = true;
-      if (!Platform.isMacOS && !kIsWeb) {
-        try {
-          canLaunch = await canLaunchUrl(url);
-        } catch (e) {
-          developer.log(
-              'canLaunchUrl check failed, proceeding anyway: $e');
-          canLaunch = true;
-        }
-      }
-
-      if (canLaunch || kIsWeb) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content:
-              const Text("🗺️ Opening location in Google Maps..."),
-              backgroundColor:
-              _isDarkMode ? Colors.blue.shade800 : Colors.blue,
-            ),
-          );
-        }
-      } else {
-        throw Exception('Could not launch Google Maps');
-      }
-    } catch (e) {
-      developer.log('❌ Google Maps launch ERROR: $e');
-      if (mounted) {
-        String errorMsg = e.toString();
-        if (errorMsg.contains('PlatformException')) {
-          errorMsg =
-          'Failed to open maps. Please check your system settings.';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("❌ $errorMsg"),
-            backgroundColor:
-            _isDarkMode ? Colors.red.shade800 : Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VictimMapScreen(victim: victim),
+      ),
+    );
   }
 
   // ---------- Table helpers ----------
@@ -649,7 +587,7 @@ class _VictimReadingsPageState extends State<VictimReadingsPage>
                     size: 20, color: Colors.white),
               ),
               onPressed: () => _openInGoogleMaps(victim),
-              tooltip: "Open in Google Maps",
+              tooltip: "Open Map",
             ),
           ],
         ),

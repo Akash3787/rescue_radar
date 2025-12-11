@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 import 'dart:async';
-import 'dart:io';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'models/victim_reading.dart';
 import 'services/api_service.dart';
 import 'live_graph_interface.dart';
+import 'victim_map_screen.dart';
 
 class MappingInterface extends StatefulWidget {
   const MappingInterface({super.key});
@@ -494,9 +493,14 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
           ),
           if (victim.latitude != null && victim.longitude != null)
             ElevatedButton.icon(
-              onPressed: () async {
+              onPressed: () {
                 Navigator.pop(context);
-                await _openInGoogleMaps(victim);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => VictimMapScreen(victim: victim),
+                  ),
+                );
               },
               icon: const Icon(Icons.map),
               label: const Text("Maps"),
@@ -523,40 +527,6 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
     );
   }
 
-  Future<void> _openInGoogleMaps(VictimReading victim) async {
-    if (victim.latitude == null || victim.longitude == null) return;
-
-    final lat = victim.latitude!;
-    final lon = victim.longitude!;
-    final urlString = 'https://www.google.com/maps?q=$lat,$lon';
-    final url = Uri.parse(urlString);
-
-    try {
-      if (Platform.isMacOS) {
-        final result = await Process.run('open', [urlString]);
-        if (result.exitCode == 0 && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("🗺️ Opening location in Google Maps...")),
-          );
-        }
-      } else {
-        if (await canLaunchUrl(url)) {
-          await launchUrl(url, mode: LaunchMode.externalApplication);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("🗺️ Opening location in Google Maps...")),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to open maps: $e")),
-        );
-      }
-    }
-  }
 }
 
 class DetectionPoint {
