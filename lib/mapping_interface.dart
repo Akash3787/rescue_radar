@@ -89,25 +89,19 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
   }
 
   void _convertReadingsToDetectionPoints(List<VictimReading> readings) {
-    // Filter only detected victims
-    final detectedReadings = readings.where((r) => r.detected).toList();
-    
     // Separate victims with GPS and without GPS
-    final victimsWithGPS = detectedReadings.where((r) => r.latitude != null && r.longitude != null).toList();
-    final victimsWithoutGPS = detectedReadings.where((r) => r.latitude == null || r.longitude == null).toList();
+    final victimsWithGPS = readings.where((r) => r.latitude != null && r.longitude != null).toList();
+    final victimsWithoutGPS = readings.where((r) => r.latitude == null || r.longitude == null).toList();
 
     // Convert victims with GPS to detection points
     humanPoints = [];
     for (int i = 0; i < victimsWithGPS.length; i++) {
       final victim = victimsWithGPS[i];
-      // Use rangeCm (preferred) or distanceCm (fallback) to determine radar distance (normalize: max 500cm = 1.0)
-      final rangeValue = victim.rangeCm ?? victim.distanceCm ?? 0.0;
-      final normalizedDistance = (rangeValue / 500.0).clamp(0.1, 1.0);
-      // Use angleDeg if available, otherwise distribute angles evenly
-      final angle = victim.angleDeg != null
-          ? (victim.angleDeg! * pi / 180.0) // Convert degrees to radians
-          : ((i * 2 * pi / (victimsWithGPS.isNotEmpty ? victimsWithGPS.length : 1)) + 
-             (victim.victimId.hashCode % 100) / 100.0);
+      // Use distanceCm to determine radar distance (normalize: max 500cm = 1.0)
+      final normalizedDistance = (victim.distanceCm / 500.0).clamp(0.1, 1.0);
+      // Distribute angles evenly around the circle, or use a hash of victim ID
+      final angle = (i * 2 * pi / (victimsWithGPS.isNotEmpty ? victimsWithGPS.length : 1)) + 
+                    (victim.victimId.hashCode % 100) / 100.0;
       humanPoints.add(DetectionPoint(
         angle: angle,
         distance: normalizedDistance,
@@ -121,18 +115,15 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
     noisePoints = [];
     debrisPoints = [];
     
+    // You can add logic here to categorize based on distance or other factors
     for (int i = 0; i < victimsWithoutGPS.length; i++) {
       final victim = victimsWithoutGPS[i];
-      final rangeValue = victim.rangeCm ?? victim.distanceCm ?? 0.0;
-      final normalizedDistance = (rangeValue / 500.0).clamp(0.1, 1.0);
-      // Use angleDeg if available, otherwise distribute angles evenly
-      final angle = victim.angleDeg != null
-          ? (victim.angleDeg! * pi / 180.0) // Convert degrees to radians
-          : ((i * 2 * pi / (victimsWithoutGPS.isNotEmpty ? victimsWithoutGPS.length : 1)) + 
-             (victim.victimId.hashCode % 100) / 100.0);
+      final normalizedDistance = (victim.distanceCm / 500.0).clamp(0.1, 1.0);
+      final angle = (i * 2 * pi / (victimsWithoutGPS.isNotEmpty ? victimsWithoutGPS.length : 1)) + 
+                    (victim.victimId.hashCode % 100) / 100.0;
       
-      // Categorize based on range (closer = debris, farther = noise)
-      if (rangeValue < 200) {
+      // Categorize based on distance (closer = debris, farther = noise)
+      if (victim.distanceCm < 200) {
         debrisPoints.add(DetectionPoint(
           angle: angle,
           distance: normalizedDistance,
@@ -226,9 +217,8 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
                                 _infoText("Range: 5 meters"),
                                 _infoText("Sweep Rate: 2 RPM"),
                                 _infoText("Detected Targets: ${humanPoints.length + noisePoints.length + debrisPoints.length}"),
-                                _infoText("Humans Detected: ${humanPoints.length}"),
-                                _infoText("Total Detections: ${_victimReadings.where((r) => r.detected).length}"),
-                                _infoText("With GPS: ${_victimReadings.where((r) => r.latitude != null && r.longitude != null && r.detected).length}"),
+                                _infoText("Humans: ${humanPoints.length}"),
+                                _infoText("With GPS: ${_victimReadings.where((r) => r.latitude != null && r.longitude != null).length}"),
                                 _infoText(_lastUpdate != null 
                                   ? "Last Update: ${_formatTimeAgo(_lastUpdate!)}"
                                   : "Last Update: Never"),
@@ -490,13 +480,7 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Status: ${victim.detected ? 'DETECTED' : 'NOT DETECTED'}"),
-            if (victim.rangeCm != null)
-              Text("Range: ${victim.rangeCm!.toStringAsFixed(1)} cm"),
-            if (victim.angleDeg != null)
-              Text("Angle: ${victim.angleDeg!.toStringAsFixed(1)}°"),
-            if (victim.distanceCm != null && victim.rangeCm == null)
-              Text("Distance: ${victim.distanceCm!.toStringAsFixed(1)} cm"),
+            Text("Distance: ${victim.distanceCm.toStringAsFixed(1)} cm"),
             Text("Latitude: ${victim.latitude!.toStringAsFixed(6)}"),
             Text("Longitude: ${victim.longitude!.toStringAsFixed(6)}"),
             Text("Time: ${victim.timestamp.toString()}"),

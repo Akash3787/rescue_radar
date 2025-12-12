@@ -7,24 +7,23 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- Allow external apps like Google Maps -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="geo"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
+
     <application
         android:name="${applicationName}"
         android:label="rescue_radar"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
-
-        <!-- Allow external apps like Google Maps -->
-        <queries>
-            <intent>
-                <action android:name="android.intent.action.VIEW"/>
-                <data android:scheme="geo"/>
-            </intent>
-            <intent>
-                <action android:name="android.intent.action.VIEW"/>
-                <data android:scheme="https"/>
-            </intent>
-        </queries>
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
