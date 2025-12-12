@@ -21,7 +21,6 @@ dependencies:
   path_provider: ^2.1.5  # For file paths
   open_file: ^3.5.10     # To open downloaded PDF
   permission_handler: ^11.3.1  # For storage permissions (Android)
-  open_file_plus: ^3.3.1
   url_launcher: ^6.3.2
   google_maps_flutter: ^2.1.1
   geolocator: ^10.0.0

@@ -97,8 +97,8 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
     humanPoints = [];
     for (int i = 0; i < victimsWithGPS.length; i++) {
       final victim = victimsWithGPS[i];
-      // Use distanceCm to determine radar distance (normalize: max 500cm = 1.0)
-      final normalizedDistance = (victim.distanceCm / 500.0).clamp(0.1, 1.0);
+      // Use distanceCm to determine radar distance (normalize: max 1000cm = 1.0)
+      final normalizedDistance = (victim.distanceCm / 1000.0).clamp(0.1, 1.0);
       // Distribute angles evenly around the circle, or use a hash of victim ID
       final angle = (i * 2 * pi / (victimsWithGPS.isNotEmpty ? victimsWithGPS.length : 1)) + 
                     (victim.victimId.hashCode % 100) / 100.0;
@@ -118,7 +118,7 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
     // You can add logic here to categorize based on distance or other factors
     for (int i = 0; i < victimsWithoutGPS.length; i++) {
       final victim = victimsWithoutGPS[i];
-      final normalizedDistance = (victim.distanceCm / 500.0).clamp(0.1, 1.0);
+      final normalizedDistance = (victim.distanceCm / 1000.0).clamp(0.1, 1.0);
       final angle = (i * 2 * pi / (victimsWithoutGPS.isNotEmpty ? victimsWithoutGPS.length : 1)) + 
                     (victim.victimId.hashCode % 100) / 100.0;
       
@@ -159,194 +159,180 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
           },
         ),
       ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < 1050;
+          final radarSize = isNarrow
+              ? constraints.maxWidth * 0.85
+              : 650.0;
+          final sideWidth = isNarrow
+              ? constraints.maxWidth
+              : (constraints.maxWidth * 0.26).clamp(220.0, 320.0);
 
-      body: Column(
-        children: [
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          Widget infoPanel = Container(
+            width: sideWidth,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: darkBackgroundColor,
+              border: isNarrow
+                  ? const Border(bottom: BorderSide(color: Colors.white24, width: 1))
+                  : const Border(right: BorderSide(color: Colors.white24, width: 1)),
+            ),
+            child: Column(
               children: [
-                // Left Information Panel (300 px)
+                const SizedBox(height: 12),
                 Container(
-                  width: 300,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: darkBackgroundColor,
-                    border: const Border(right: BorderSide(color: Colors.white24, width: 1)),
+                    color: Colors.grey[900],
+                    border: Border.all(color: Colors.white24),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // const Text(
-                      //   "Rubble Radar Rescue System",
-                      //   style: TextStyle(
-                      //     fontSize: 28,
-                      //     fontWeight: FontWeight.bold,
-                      //     color: Colors.white,
-                      //     fontFamily: 'Roboto',
-                      //   ),
-                      // ),
-                      const SizedBox(height: 30),
-                      Expanded(
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[900],
-                              border: Border.all(color: Colors.white24),
-                              borderRadius: BorderRadius.circular(16),
+                      Row(
+                        children: const [
+                          Icon(Icons.circle, color: Color(0xFF00C853), size: 16),
+                          SizedBox(width: 8),
+                          Text(
+                            "Active Scan",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  children: const [
-                                    Icon(Icons.circle, color: Color(0xFF00C853), size: 16),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      "Active Scan",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 20,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                _infoText("Range: 5 meters"),
-                                _infoText("Sweep Rate: 2 RPM"),
-                                _infoText("Detected Targets: ${humanPoints.length + noisePoints.length + debrisPoints.length}"),
-                                _infoText("Humans: ${humanPoints.length}"),
-                                _infoText("With GPS: ${_victimReadings.where((r) => r.latitude != null && r.longitude != null).length}"),
-                                _infoText(_lastUpdate != null 
-                                  ? "Last Update: ${_formatTimeAgo(_lastUpdate!)}"
-                                  : "Last Update: Never"),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Central Radar Display
-                Expanded(
-                  child: Center(
-                      child: SizedBox(
-                      width: 650,
-                      height: 650,
-                      child: GestureDetector(
-                        onTapDown: (details) {
-                          _handleRadarTap(details.localPosition, Size(650, 650));
-                        },
-                        child: AnimatedBuilder(
-                          animation: _controller,
-                          builder: (context, _) {
-                            return CustomPaint(
-                              painter: RadarPainter(
-                                sweepAngle: _controller.value * 2 * pi,
-                                humanDetections: humanPoints,
-                                noiseDetections: noisePoints,
-                                debrisDetections: debrisPoints,
-                                showGrid: showGrid,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Right Control Panel (300 px, centered vertically)
-                Container(
-                  width: 300,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: darkBackgroundColor,
-                    border: const Border(left: BorderSide(color: Colors.white24, width: 1)),
-                  ),
-                  child: Center(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Align(
-                            alignment: Alignment.topRight,
-                            child: ElevatedButton.icon(
-                              onPressed: _isLoading ? null : () => _loadVictimData(),
-                              icon: _isLoading 
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                    ),
-                                  )
-                                : const Icon(Icons.refresh, color: Colors.white),
-                              label: const Text(
-                                "Refresh Map",
-                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: tealCyanLight,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                elevation: 4,
-                                shadowColor: Colors.black45,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 40),
-                          const Text(
-                            "Clear Points",
-                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: clearPointsController,
-                            cursorColor: Colors.white,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: InputDecoration(
-                              fillColor: Colors.grey[900],
-                              filled: true,
-                              hintText: "Enter points to clear",
-                              hintStyle: const TextStyle(color: Colors.white54),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                            ),
-                          ),
-                          const SizedBox(height: 40),
-                          _buildSwitch("Auto Refresh", autoRefresh, activeGreen, (v) {
-                            setState(() => autoRefresh = v);
-                            _startAutoRefresh();
-                          }),
-                          _buildSwitch("Show Grid", showGrid, activeGreen, (v) {
-                            setState(() => showGrid = v);
-                          }),
-                          _buildSwitch(
-                            "Sound Alert", soundAlert, Colors.grey, (v) => setState(() => soundAlert = v),
-                            inactiveTrackColor: const Color(0xFFFF9100),
                           ),
                         ],
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                      _infoText("Range: 10 meters"),
+                      _infoText("Sweep Rate: 2 RPM"),
+                      _infoText("Detected Targets: ${humanPoints.length + noisePoints.length + debrisPoints.length}"),
+                      _infoText("Humans: ${humanPoints.length}"),
+                      _infoText("With GPS: ${_victimReadings.where((r) => r.latitude != null && r.longitude != null).length}"),
+                      _infoText(_lastUpdate != null
+                          ? "Last Update: ${_formatTimeAgo(_lastUpdate!)}"
+                          : "Last Update: Never"),
+                    ],
                   ),
                 ),
               ],
             ),
-          ),
-          // Legend panel (bottom bar)
-          Container(
+          );
+
+          Widget radarPanel = Center(
+            child: SizedBox(
+              width: radarSize,
+              height: radarSize,
+              child: GestureDetector(
+                onTapDown: (details) {
+                  _handleRadarTap(details.localPosition, Size(radarSize, radarSize));
+                },
+                child: AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, _) {
+                    return CustomPaint(
+                      painter: RadarPainter(
+                        sweepAngle: _controller.value * 2 * pi,
+                        humanDetections: humanPoints,
+                        noiseDetections: noisePoints,
+                        debrisDetections: debrisPoints,
+                        showGrid: showGrid,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+
+          Widget controlPanel = Container(
+            width: sideWidth,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: darkBackgroundColor,
+              border: isNarrow
+                  ? const Border(top: BorderSide(color: Colors.white24, width: 1))
+                  : const Border(left: BorderSide(color: Colors.white24, width: 1)),
+            ),
+            child: Center(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: ElevatedButton.icon(
+                        onPressed: _isLoading ? null : () => _loadVictimData(),
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : const Icon(Icons.refresh, color: Colors.white),
+                        label: const Text(
+                          "Refresh Map",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: tealCyanLight,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          elevation: 4,
+                          shadowColor: Colors.black45,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    const Text(
+                      "Clear Points",
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: clearPointsController,
+                      cursorColor: Colors.white,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        fillColor: Colors.grey[900],
+                        filled: true,
+                        hintText: "Enter points to clear",
+                        hintStyle: const TextStyle(color: Colors.white54),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    _buildSwitch("Auto Refresh", autoRefresh, activeGreen, (v) {
+                      setState(() => autoRefresh = v);
+                      _startAutoRefresh();
+                    }),
+                    _buildSwitch("Show Grid", showGrid, activeGreen, (v) {
+                      setState(() => showGrid = v);
+                    }),
+                    _buildSwitch(
+                      "Sound Alert", soundAlert, Colors.grey, (v) => setState(() => soundAlert = v),
+                      inactiveTrackColor: const Color(0xFFFF9100),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+
+          final legendBar = Container(
             height: 56,
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -360,9 +346,9 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
             child: Row(
               children: [
                 _legendCircle(const Color(0xFFE53935), "Human Detected"),
-                const SizedBox(width: 24),
+                const SizedBox(width: 16),
                 _legendCircle(const Color(0xFFFF9100), "Noise Signal"),
-                const SizedBox(width: 24),
+                const SizedBox(width: 16),
                 _legendCircle(const Color(0xFF616161), "Object/Debris"),
                 const Spacer(),
                 Row(
@@ -386,8 +372,40 @@ class _MappingInterfaceState extends State<MappingInterface> with SingleTickerPr
                 )
               ],
             ),
-          ),
-        ],
+          );
+
+          if (isNarrow) {
+            return SingleChildScrollView(
+              child: Column(
+                children: [
+                  infoPanel,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: radarPanel,
+                  ),
+                  controlPanel,
+                  legendBar,
+                ],
+              ),
+            );
+          }
+
+          return Column(
+            children: [
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    infoPanel,
+                    Expanded(child: radarPanel),
+                    controlPanel,
+                  ],
+                ),
+              ),
+              legendBar,
+            ],
+          );
+        },
       ),
     );
   }
@@ -589,9 +607,9 @@ class RadarPainter extends CustomPainter {
   void _drawGrid(Canvas canvas, Offset center, double radius) {
     _circlePaint.color = Colors.lightBlue.withOpacity(0.3);
 
-    // Draw 7 circles for 1m through 7m
-    for (int i = 1; i <= 7; i++) {
-      canvas.drawCircle(center, radius * i / 7, _circlePaint);
+    // Draw 10 circles for 1m through 10m
+    for (int i = 1; i <= 10; i++) {
+      canvas.drawCircle(center, radius * i / 10, _circlePaint);
     }
 
     // Draw radial lines every 30 degrees (optional)
@@ -605,11 +623,11 @@ class RadarPainter extends CustomPainter {
     final textStyle = TextStyle(color: Colors.lightBlue.withOpacity(0.5), fontSize: 12);
     final tp = TextPainter(textAlign: TextAlign.center, textDirection: TextDirection.ltr);
 
-    for (int i = 1; i <= 7; i++) {
+    for (int i = 1; i <= 10; i++) {
       tp.text = TextSpan(text: '${i}m', style: textStyle);
       tp.layout();
       // Draw label centered horizontally, just below the circle boundary near bottom center.
-      tp.paint(canvas, Offset(center.dx + radius * i / 7 - tp.width / 2, center.dy + 4));
+      tp.paint(canvas, Offset(center.dx + radius * i / 10 - tp.width / 2, center.dy + 4));
     }
   }
 
