@@ -112,9 +112,24 @@ class _VictimMapScreenState extends State<VictimMapScreen> {
                     const SizedBox(height: 12),
                     _buildInfoRow("ID", widget.victim.victimId),
                     _buildInfoRow(
-                      "Distance",
-                      "${widget.victim.distanceCm.toStringAsFixed(1)} cm",
+                      "Status",
+                      widget.victim.detected ? "DETECTED" : "NOT DETECTED",
                     ),
+                    if (widget.victim.rangeCm != null)
+                      _buildInfoRow(
+                        "Range",
+                        "${widget.victim.rangeCm!.toStringAsFixed(1)} cm",
+                      ),
+                    if (widget.victim.angleDeg != null)
+                      _buildInfoRow(
+                        "Angle",
+                        "${widget.victim.angleDeg!.toStringAsFixed(1)}°",
+                      ),
+                    if (widget.victim.distanceCm != null && widget.victim.rangeCm == null)
+                      _buildInfoRow(
+                        "Distance",
+                        "${widget.victim.distanceCm!.toStringAsFixed(1)} cm",
+                      ),
                     _buildInfoRow(
                       "Latitude",
                       widget.victim.latitude?.toStringAsFixed(6) ?? "N/A",
@@ -217,7 +232,13 @@ class _VictimMapScreenState extends State<VictimMapScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildDialogRow("Victim ID", widget.victim.victimId),
-              _buildDialogRow("Distance", "${widget.victim.distanceCm.toStringAsFixed(1)} cm"),
+              _buildDialogRow("Status", widget.victim.detected ? "DETECTED" : "NOT DETECTED"),
+              if (widget.victim.rangeCm != null)
+                _buildDialogRow("Range", "${widget.victim.rangeCm!.toStringAsFixed(1)} cm"),
+              if (widget.victim.angleDeg != null)
+                _buildDialogRow("Angle", "${widget.victim.angleDeg!.toStringAsFixed(1)}°"),
+              if (widget.victim.distanceCm != null && widget.victim.rangeCm == null)
+                _buildDialogRow("Distance", "${widget.victim.distanceCm!.toStringAsFixed(1)} cm"),
               _buildDialogRow(
                 "Latitude",
                 widget.victim.latitude?.toStringAsFixed(6) ?? "N/A",
@@ -302,7 +323,9 @@ class _VictimMapScreenState extends State<VictimMapScreen> {
           position: _victimLocation,
           infoWindow: gm.InfoWindow(
             title: 'Victim: ${widget.victim.victimId}',
-            snippet: 'Distance: ${widget.victim.distanceCm.toStringAsFixed(1)} cm',
+            snippet: widget.victim.rangeCm != null
+                ? 'Range: ${widget.victim.rangeCm!.toStringAsFixed(1)} cm${widget.victim.angleDeg != null ? ' • Angle: ${widget.victim.angleDeg!.toStringAsFixed(1)}°' : ''}'
+                : 'Distance: ${widget.victim.distanceCm?.toStringAsFixed(1) ?? "N/A"} cm',
           ),
           icon: gm.BitmapDescriptor.defaultMarkerWithHue(gm.BitmapDescriptor.hueRed),
         ),

@@ -179,7 +179,9 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
       final latest = readings.last;
 
       final nowSeconds = DateTime.now().millisecondsSinceEpoch / 1000.0;
-      final distanceCm = latest.distanceCm.clamp(0.0, maxDepth);
+      // Use rangeCm (preferred) or distanceCm (fallback), default to 0 if both null
+      final distanceValue = latest.rangeCm ?? latest.distanceCm ?? 0.0;
+      final distanceCm = distanceValue.clamp(0.0, maxDepth);
 
       if (!mounted) return;
       setState(() {
@@ -217,8 +219,12 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
     });
 
     try {
-      final readings =
-      await _apiService.fetchReadingsForVictim(widget.victimId!);
+      // Fetch all readings and filter by victim ID
+      final allReadings = await _apiService.fetchAllReadings(page: 1, perPage: 500);
+      final readings = allReadings
+          .where((r) => r.victimId == widget.victimId)
+          .toList()
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
       if (readings.isEmpty) {
         setState(() {
@@ -232,7 +238,9 @@ class _LiveGraphInterfaceState extends State<LiveGraphInterface> {
       // Convert readings to samples (distance already in cm from API)
       distanceHistory = readings.map((r) {
         final timestampSeconds = r.timestamp.millisecondsSinceEpoch / 1000.0;
-        final distanceCm = r.distanceCm.clamp(0.0, maxDepth);
+        // Use rangeCm (preferred) or distanceCm (fallback), default to 0 if both null
+        final distanceValue = r.rangeCm ?? r.distanceCm ?? 0.0;
+        final distanceCm = distanceValue.clamp(0.0, maxDepth);
         return _Sample(timestampSeconds, distanceCm);
       }).toList();
 

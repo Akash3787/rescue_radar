@@ -146,8 +146,9 @@ class _CameraInterfaceState extends State<CameraInterface> {
 
   /// Report victim detection from camera
   Future<void> _reportVictimDetection() async {
-    // Show dialog to get distance
-    final distanceController = TextEditingController();
+    // Show dialog to get range and angle
+    final rangeController = TextEditingController();
+    final angleController = TextEditingController();
     final victimIdController = TextEditingController(
       text: 'cam-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
     );
@@ -170,10 +171,20 @@ class _CameraInterfaceState extends State<CameraInterface> {
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: distanceController,
+                controller: rangeController,
                 decoration: const InputDecoration(
-                  labelText: 'Distance (cm)',
+                  labelText: 'Range (cm)',
                   hintText: 'e.g., 250',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: angleController,
+                decoration: const InputDecoration(
+                  labelText: 'Angle (degrees)',
+                  hintText: 'e.g., 45 (optional)',
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
@@ -193,7 +204,7 @@ class _CameraInterfaceState extends State<CameraInterface> {
           ),
           ElevatedButton(
             onPressed: () {
-              if (distanceController.text.isNotEmpty) {
+              if (rangeController.text.isNotEmpty) {
                 Navigator.pop(context, true);
               }
             },
@@ -205,21 +216,25 @@ class _CameraInterfaceState extends State<CameraInterface> {
 
     if (confirmed != true) return;
 
-    final distanceText = distanceController.text.trim();
-    if (distanceText.isEmpty) {
+    final rangeText = rangeController.text.trim();
+    if (rangeText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ Please enter distance')),
+        const SnackBar(content: Text('❌ Please enter range')),
       );
       return;
     }
 
-    final distance = double.tryParse(distanceText);
-    if (distance == null || distance <= 0) {
+    final range = double.tryParse(rangeText);
+    if (range == null || range <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ Invalid distance value')),
+        const SnackBar(content: Text('❌ Invalid range value')),
       );
       return;
     }
+
+    final angle = angleController.text.trim().isNotEmpty
+        ? double.tryParse(angleController.text.trim())
+        : null;
 
     setState(() => _reportingVictim = true);
 
@@ -243,30 +258,31 @@ class _CameraInterfaceState extends State<CameraInterface> {
         developer.log('GPS error: $e');
       }
 
-      // Send to backend
-      final response = await _apiService.postReading({
+      // Send to backend with new fields
+      final reading = await _apiService.postReading({
         'victim_id': victimIdController.text.trim(),
-        'distance_cm': distance,
+        'detected': true, // Person detected
+        'range_cm': range,
+        if (angle != null) 'angle_deg': angle,
+        // Legacy field for compatibility
+        'distance_cm': range,
         if (latitude != null) 'latitude': latitude,
         if (longitude != null) 'longitude': longitude,
       });
 
-      if (response.statusCode == 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '✅ Victim reported: ${victimIdController.text}\n'
-                    'Distance: ${distance.toStringAsFixed(1)} cm'
-                    '${latitude != null && longitude != null ? '\nGPS: ${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}' : '\n⚠️ No GPS'}',
-              ),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 4),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ Victim reported: ${victimIdController.text}\n'
+                  'Range: ${range.toStringAsFixed(1)} cm'
+                  '${angle != null ? '\nAngle: ${angle!.toStringAsFixed(1)}°' : ''}'
+                  '${latitude != null && longitude != null ? '\nGPS: ${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}' : '\n⚠️ No GPS'}',
             ),
-          );
-        }
-      } else {
-        throw Exception('Server returned ${response.statusCode}');
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     } catch (e) {
       developer.log('❌ Report victim error: $e');

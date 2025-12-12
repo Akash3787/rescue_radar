@@ -1,19 +1,32 @@
 // lib/models/victim_reading.dart
 class VictimReading {
-  final int id;
+  final int? id;
   final String victimId;
-  final double distanceCm;
+
+  // Radar-specific fields your UI expects
+  final bool detected;
+  final double? rangeCm; // primary distance value from radar
+  final double? angleDeg;
+
+  // Backwards-compatible fields (some payloads still use distance_cm)
+  final double? distanceCm;
+
+  // Other optional sensors (kept for compatibility)
   final double? temperatureC;
   final double? humidityPct;
   final double? gasPpm;
   final double? latitude;
   final double? longitude;
+
   final DateTime timestamp;
 
   VictimReading({
-    required this.id,
+    this.id,
     required this.victimId,
-    required this.distanceCm,
+    required this.detected,
+    this.rangeCm,
+    this.angleDeg,
+    this.distanceCm,
     this.temperatureC,
     this.humidityPct,
     this.gasPpm,
@@ -22,91 +35,89 @@ class VictimReading {
     required this.timestamp,
   });
 
-  /// Robust ISO timestamp parser:
-  /// - accepts: "2025-11-28T17:49:43Z"
-  /// - accepts: "2025-11-28T17:49:43+00:00"
-  /// - accepts: "2025-11-28T17:49:43+00:00Z" (we will normalize it)
-  static DateTime _parseTimestamp(String? s) {
-    if (s == null || s.isEmpty) {
-      // fallback to now if missing (or throw if you prefer)
-      return DateTime.now().toUtc();
-    }
+  static double? _toDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is double) return v;
+    if (v is int) return v.toDouble();
+    final s = v.toString().trim();
+    if (s.isEmpty || s.toLowerCase() == 'null') return null;
+    return double.tryParse(s);
+  }
 
-    var str = s.trim();
+  static bool _toBool(dynamic v) {
+    if (v == null) return false;
+    if (v is bool) return v;
+    final s = v.toString().trim().toLowerCase();
+    return (s == '1' || s == 'true' || s == 'yes' || s == 'on');
+  }
 
-    // Normalise common broken form: "+00:00Z" -> "Z"
-    // e.g. "2025-11-28T17:49:43+00:00Z" -> "2025-11-28T17:49:43Z"
-    if (str.endsWith('Z') && str.contains('+')) {
-      // remove the trailing Z if there is an explicit +hh:mm part
-      // convert "+00:00Z" -> "Z" by removing the "+00:00"
-      final lastPlus = str.lastIndexOf('+');
-      if (lastPlus != -1) {
-        final maybeOffset = str.substring(lastPlus);
-        // if looks like +HH:MM or +HHMM or +HH, strip it
-        if (RegExp(r'^\+[0-9]{2}(:?[0-9]{2})?Z$').hasMatch(maybeOffset)) {
-          // remove the offset and keep single Z
-          str = str.substring(0, lastPlus) + 'Z';
+  factory VictimReading.fromJson(Map<String, dynamic> js) {
+    // Support multiple key names used by various backends
+    String vid = js['victim_id'] ??
+        js['victimId'] ??
+        js['id']?.toString() ??
+        'vic-${DateTime.now().millisecondsSinceEpoch}';
+
+    // Range may be under range_cm, range, distance_cm, distance
+    final dynamic rawRange = js['range_cm'] ??
+        js['range'] ??
+        js['distance_cm'] ??
+        js['distance'];
+
+    final dynamic rawAngle = js['angle_deg'] ?? js['angle'];
+
+    final dynamic rawDetected = js['detected'] ??
+        js['has_person'] ??
+        js['presence'] ??
+        js['found'];
+
+    final timestampRaw = js['timestamp'] ?? js['time'] ?? js['ts'];
+
+    DateTime ts;
+    if (timestampRaw == null) {
+      ts = DateTime.now();
+    } else {
+      try {
+        ts = DateTime.parse(timestampRaw.toString());
+      } catch (_) {
+        // Try numeric epoch (seconds or milliseconds)
+        final epoch = int.tryParse(timestampRaw.toString());
+        if (epoch != null) {
+          ts = epoch > 9999999999 ? DateTime.fromMillisecondsSinceEpoch(epoch) : DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
         } else {
-          // fallback: strip trailing Z only
-          str = str.replaceFirst(RegExp(r'Z$'), '');
+          ts = DateTime.now();
         }
       }
     }
 
-    // If string ends with 'Z' it's UTC — DateTime.parse can handle it.
-    // If it contains a timezone like +05:30 DateTime.parse can handle it.
-    try {
-      return DateTime.parse(str).toUtc();
-    } catch (_) {
-      // as last resort try some manual transformations:
-      // remove trailing 'Z' and parse as naive then treat as UTC
-      final cleaned = str.replaceFirst(RegExp(r'Z$'), '');
-      try {
-        return DateTime.parse(cleaned).toUtc();
-      } catch (e) {
-        // ultimate fallback: return now (but log in dev)
-        // You may prefer to throw instead.
-        return DateTime.now().toUtc();
-      }
-    }
-  }
-
-  factory VictimReading.fromJson(Map<String, dynamic> json) {
-    final ts = json['timestamp'];
-    // timestamp may be already DateTime (if decoded differently)
-    DateTime parsedTs;
-    if (ts is DateTime) {
-      parsedTs = ts.toUtc();
-    } else {
-      parsedTs = _parseTimestamp(ts?.toString());
-    }
-
     return VictimReading(
-      id: json['id'] is int ? json['id'] as int : int.parse(json['id'].toString()),
-      victimId: json['victim_id'] ?? json['victimId'] ?? 'unknown',
-      distanceCm: (json['distance_cm'] is num) ? (json['distance_cm'] as num).toDouble() : double.parse(json['distance_cm'].toString()),
-      temperatureC: json['temperature_c'] == null ? null : (json['temperature_c'] as num).toDouble(),
-      humidityPct: json['humidity_pct'] == null ? null : (json['humidity_pct'] as num).toDouble(),
-      gasPpm: json['gas_ppm'] == null ? null : (json['gas_ppm'] as num).toDouble(),
-      latitude: json['latitude'] == null ? null : (json['latitude'] as num).toDouble(),
-      longitude: json['longitude'] == null ? null : (json['longitude'] as num).toDouble(),
-      timestamp: parsedTs,
+      id: js['id'] is int ? js['id'] as int : (int.tryParse(js['id']?.toString() ?? '') ?? null),
+      victimId: vid.toString(),
+      detected: _toBool(rawDetected),
+      rangeCm: _toDouble(rawRange),
+      angleDeg: _toDouble(rawAngle),
+      distanceCm: _toDouble(js['distance_cm'] ?? js['distance']),
+      temperatureC: _toDouble(js['temperature'] ?? js['temperature_c']),
+      humidityPct: _toDouble(js['humidity'] ?? js['humidity_pct']),
+      gasPpm: _toDouble(js['gas'] ?? js['gas_ppm']),
+      latitude: _toDouble(js['latitude']),
+      longitude: _toDouble(js['longitude']),
+      timestamp: ts,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'victim_id': victimId,
+    'detected': detected,
+    'range_cm': rangeCm,
+    'angle_deg': angleDeg,
     'distance_cm': distanceCm,
-    'temperature_c': temperatureC,
-    'humidity_pct': humidityPct,
-    'gas_ppm': gasPpm,
+    'temperature': temperatureC,
+    'humidity': humidityPct,
+    'gas': gasPpm,
     'latitude': latitude,
     'longitude': longitude,
-    // keep ISO UTC with 'Z' suffix
-    'timestamp': timestamp.toUtc().toIso8601String().replaceFirst(RegExp(r'\+00:00$'), 'Z'),
+    'timestamp': timestamp.toUtc().toIso8601String(),
   };
-
-  /// convenience string for clipboard / debug
-  String toJsonString() => toJson().toString();
 }
