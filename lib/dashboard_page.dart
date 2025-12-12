@@ -887,7 +887,7 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       // Live Graph Card
       _DashboardCardData(
-        title: 'Live Heartbeat Graph',
+        title: 'Live Graph',
         description: 'Monitor live vital signs',
         imageAsset: 'images/LiveGraph.png',
         accent: Colors.cyanAccent,
